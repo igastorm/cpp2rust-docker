@@ -3,12 +3,17 @@
 // Copyright (c) 2022-present INESC-ID.
 // Distributed under the MIT license that can be found in the LICENSE file.
 
+#include <memory>
+
 #include "converter/converter.h"
+#include "converter/models/boxed_vars.h"
 
 namespace cpp2rust {
 class ConverterRefCount final : public Converter {
 public:
   ConverterRefCount(std::string &rs_code, clang::ASTContext &ctx);
+  ConverterRefCount(std::string &rs_code, clang::ASTContext &ctx,
+                    std::shared_ptr<const BoxedVars> boxed_vars);
 
   void EmitFilePreamble() override;
 
@@ -25,8 +30,7 @@ public:
   bool VisitPointerType(clang::PointerType *type) override;
 
   std::string
-  ConvertFunctionPointerType(const clang::FunctionProtoType *proto,
-                             FnProtoType kind = FnProtoType::FnPtr) override;
+  ConvertFunctionPointerType(const clang::FunctionProtoType *proto) override;
 
   bool VisitCXXRecordDecl(clang::CXXRecordDecl *decl) override;
 
@@ -36,7 +40,7 @@ public:
 
   bool EmitsReprCForRecords() const override { return false; }
 
-  const char *CharRustType() const override { return "u8"; }
+  const char *CharRustType() const override { return "i8"; }
 
   std::string GetComparisonReferenceArg(const clang::CXXRecordDecl *decl,
                                         std::string_view value) override;
@@ -49,7 +53,13 @@ public:
                              std::string_view src);
   void AddCloneTrait(const clang::RecordDecl *decl) override;
 
-  void AddByteReprTrait(const clang::RecordDecl *decl) override;
+  bool RecordImplementsClone(const clang::RecordDecl *decl) override;
+
+  bool RecordDerivesClone(const clang::RecordDecl *decl);
+
+  bool RecordDerivesDeepClone(const clang::RecordDecl *decl);
+
+  void EmitByteSizeAttr(const clang::RecordDecl *decl) override;
 
   bool
   VisitUnaryExprOrTypeTraitExpr(clang::UnaryExprOrTypeTraitExpr *expr) override;
@@ -95,8 +105,6 @@ public:
 
   void EmitHoistedInArmAssignment(clang::VarDecl *decl) override;
 
-  bool ConvertLambdaVarDecl(clang::VarDecl *decl) override;
-
   void ConvertDeclRefValue(clang::Expr *expr, clang::ValueDecl *decl) override;
 
   bool ConvertIncAndDec(clang::UnaryOperator *expr) override;
@@ -107,6 +115,17 @@ public:
 
   void EmitFnPtrCall(clang::Expr *callee) override;
 
+  bool VisitLambdaExpr(clang::LambdaExpr *expr) override;
+
+  void ConvertCapturelessLambda(const clang::CXXRecordDecl *decl) override;
+
+  const char *LambdaMacro() const override { return "lambda!"; }
+
+  void ConvertLambdaCapture(const clang::FieldDecl *field,
+                            clang::Expr *init) override;
+
+  void ConvertLambdaToFunctionPointer(clang::Expr *lambda) override;
+
   void
   ConvertFunctionToFunctionPointer(const clang::FunctionDecl *fn_decl) override;
 
@@ -114,8 +133,6 @@ public:
 
   // FnPtr does not implement Copy
   bool FunctionPointerImplementsCopy() const override { return false; }
-  bool FunctionPointerCastNeedsTransmute() const override { return false; }
-
   bool VisitCallExpr(clang::CallExpr *expr) override;
 
   bool VisitStringLiteral(clang::StringLiteral *expr) override;
@@ -129,8 +146,7 @@ public:
   void ConvertBinaryOperator(clang::BinaryOperator *expr) override;
 
   bool VisitStmtExpr(clang::StmtExpr *expr) override;
-
-  void EmitStmtExprTail(clang::Expr *tail) override;
+  bool VisitReturnStmt(clang::ReturnStmt *stmt) override;
 
   bool VisitInitListExpr(clang::InitListExpr *expr) override;
 
@@ -145,6 +161,48 @@ public:
 
   void ConvertUnionMemberAccessor(clang::MemberExpr *expr);
 
+  // Converts an access to a field that is stored inline in its struct.
+  void ConvertInlineField(clang::MemberExpr *expr);
+
+  // A pointer to the struct whose field `expr` accesses.
+  std::string ConvertRecordPtr(clang::MemberExpr *expr);
+
+  // Copies the value of the field `expr` out of its struct, such that the
+  // struct doesn't stay borrowed.
+  std::string ReadField(clang::MemberExpr *expr,
+                        std::string_view copy = ".clone()");
+
+  // A field that is read through a pointer to its struct is read in a
+  // closure, `p.with(|__s| __s.x)`. While converting the struct whose field
+  // is read, record_base_, or `*p` for `p->x`, the dereference of a pointer
+  // to it is emitted as `__s`, and the pointer is stored in *record_ptr_.
+  std::string *record_ptr_ = nullptr;
+  const clang::Expr *record_base_ = nullptr;
+
+  // The expression that ConvertFreshRValue copies.
+  const clang::Expr *copied_expr_ = nullptr;
+
+  // The reads of unboxed variables in the returned expression being
+  // converted that are moved instead of copied, as the variables die on
+  // return.
+  std::unordered_set<const clang::DeclRefExpr *> moved_reads_;
+
+  struct PushRecordPtr {
+    ConverterRefCount &c;
+    std::string *record_ptr;
+    const clang::Expr *record_base;
+
+    PushRecordPtr(ConverterRefCount &c, std::string *ptr,
+                  const clang::Expr *base)
+        : c(c), record_ptr(std::exchange(c.record_ptr_, ptr)),
+          record_base(std::exchange(
+              c.record_base_, base ? base->IgnoreParenImpCasts() : nullptr)) {}
+    ~PushRecordPtr() {
+      c.record_ptr_ = record_ptr;
+      c.record_base_ = record_base;
+    }
+  };
+
   bool VisitCXXNewExpr(clang::CXXNewExpr *expr) override;
 
   bool VisitCXXDeleteExpr(clang::CXXDeleteExpr *expr) override;
@@ -155,8 +213,7 @@ public:
 
   bool VisitCXXForRangeStmtString(clang::CXXForRangeStmt *stmt) override;
 
-  void EmitByValueShadow(const std::string &loop_var_name, clang::QualType type,
-                         std::string box_expr,
+  void EmitByValueShadow(const clang::VarDecl *loop_var, std::string box_expr,
                          const std::string &type_override = "");
 
   std::string ConvertStream(clang::Expr *expr) override;
@@ -183,16 +240,23 @@ public:
 
   std::string GetDefaultAsStringFallback(clang::QualType qual_type) override;
 
-  std::string ConvertVarDefaultInit(clang::QualType qual_type) override;
+  std::string ConvertVarDefaultInit(const clang::VarDecl *decl) override;
 
   std::vector<const char *>
   GetStructAttributes(const clang::RecordDecl *decl) override;
+
+  bool TypeDerivesDefault(clang::QualType qual_type) override;
 
   bool Convert(clang::QualType qual_type) override;
   bool
   Convert(clang::Expr *expr,
           std::optional<clang::QualType> implicit_convert_to = {}) override {
+    auto *record_ptr = record_ptr_;
+    if (!expr || expr->IgnoreParenImpCasts() != record_base_) {
+      record_ptr_ = nullptr;
+    }
     auto result = Converter::Convert(expr, implicit_convert_to);
+    record_ptr_ = record_ptr;
     if (computed_expr_type_ == ComputedExprType::Pending) {
       assert(!pending_deref_.empty() && "pending_deref_ taken without type");
     }
@@ -205,6 +269,9 @@ public:
   }
 
   void ConvertVarInit(clang::QualType qual_type, clang::Expr *expr) override;
+
+  void ConvertFieldInit(const clang::FieldDecl *field,
+                        clang::Expr *init) override;
 
   std::string ConvertVarInitValue(clang::QualType qual_type, clang::Expr *expr);
 
@@ -275,17 +342,29 @@ private:
   void ConvertConstructedValue(clang::QualType type,
                                clang::CXXConstructExpr *ctor) override;
 
+  // Whether a pointer to pointee_type is dereferenced with .read(), which
+  // returns a copy of the pointee, rather than a borrow of it.
+  bool DerefReadsValue(clang::QualType pointee_type);
   const char *GetPointerDerefSuffix(clang::QualType pointee_type);
+  // Sets the freshness of the dereference of a pointer to pointee_type: a
+  // copy read with .read() is fresh.
+  void SetDerefFreshness(clang::QualType pointee_type);
   const char *GetPointerDerefPrefix(clang::QualType pointee_type) override;
 
-  // Converts `expr` for use where a `qual_type` function pointer is
-  // expected, inserting a `.cast()` if `expr`'s own fn pointer type differs
-  // from `qual_type` -- e.g. because the two describe the same C function
-  // pointer type through different typedefs that the translation maps to
-  // distinct Rust types (`size_t` vs `unsigned long`).
-  std::string ConvertFnPtrValue(clang::QualType qual_type, clang::Expr *expr);
-
   void EmitSetOrAssign(clang::Expr *lhs, std::string_view rhs);
+
+  // Whether an assigned value can be wrapped in braces to release its borrows
+  // before lhs is borrowed, as Rust 2024 drops the temporaries of a block's
+  // tail expression at the end of the block. This requires the value to be
+  // evaluated before lhs (or the order to be unobservable); otherwise it must
+  // be bound to a variable first.
+  bool CanBraceAssignedValue(clang::Expr *lhs, clang::Expr *rhs,
+                             std::string_view assign_operator);
+
+  // Emits `lhs = value`, where value is the result of the compound assignment
+  // `lhs op= rhs` and thus reads lhs.
+  void EmitCompoundSetOrAssign(clang::Expr *lhs, clang::Expr *rhs,
+                               std::string_view value);
 
   // If lhs is a direct reference to a global/static value (not a reference
   // type), emits `var.with(|rc| *rc.borrow_mut() <op> <rhs>)` and returns
@@ -318,20 +397,44 @@ private:
   std::string ConvertFreshRValue(
       clang::Expr *expr,
       std::optional<clang::QualType> implicit_convert_to = {}) override;
-  std::string ConvertFreshPointer(clang::Expr *expr) override;
+  std::string ConvertFreshPointer(
+      clang::Expr *expr,
+      std::optional<clang::QualType> implicit_convert_to = {}) override;
 
   std::string ConvertPtrType(clang::QualType type);
   std::string ConvertPointeeType(clang::QualType ptr_type) override;
 
-  void ConvertParamTyPointerCastIfNeeded(clang::QualType param_type,
-                                         clang::Expr *expr) override;
+  void ConvertParamTyConstCast(clang::QualType, clang::Expr *) override {}
+
+  std::string ConvertPointeeCast(std::string str, const clang::Expr *from,
+                                 clang::QualType to) override;
 
   std::string ConvertSubscriptIndex(clang::Expr *idx);
+
+  // Element `idx` of pointer `base`, accessed without creating a pointer to it.
+  void ConvertPointerElem(clang::Expr *base, clang::Expr *idx);
 
   std::string GetSafeTypeAsString(clang::QualType qual_type) const;
 
   bool NeedsMut(const clang::VarDecl *decl, clang::QualType type,
                 llvm::StringRef /*name*/) const override;
+
+  // Whether decl is a local variable or a parameter that is stored directly
+  // instead of in a Value, as no pointer to it is ever made.
+  bool IsUnboxedVar(const clang::ValueDecl *decl) const;
+  // Whether expr is an unboxed variable or a field of one, which is accessed
+  // in place.
+  bool IsUnboxedPlace(const clang::Expr *expr) const;
+  // Whether expr is a local variable or parameter stored in a Value.
+  bool IsValueLocal(const clang::Expr *expr) const;
+  // Whether expr is a field of an unboxed variable, or of a field of one,
+  // which is stored in place, even if it is a reference.
+  bool IsFieldOfUnboxedPlace(const clang::MemberExpr *expr) const;
+  std::shared_ptr<const BoxedVars> boxed_vars_;
+
+  // Set when a constructor's translation refers to `this`, which then needs
+  // the object being built to be in a Value.
+  bool ctor_uses_this_ = false;
 
   /// The kind of conversion that should be performed.
   enum class ConversionKind : uint8_t {
@@ -356,6 +459,9 @@ private:
   }
 
   ConversionKind getConversionKind() const { return conversion_kind_.back(); }
+
+  // How a variable is stored.
+  ConversionKind VarConversionKind(const clang::VarDecl *decl) const;
 
   struct PushConversionKind {
     ConverterRefCount &c;
@@ -405,7 +511,8 @@ private:
   // emit ptr.write(rhs), or by ConvertMappedMethodCall to emit
   // ptr.with_mut(...).
   struct PendingDeref {
-    explicit PendingDeref(ComputedExprType &type) : type(type) {}
+    PendingDeref(ComputedExprType &type, clang::ASTContext &ctx)
+        : type(type), ctx(ctx) {}
     void set(std::string str, bool fresh, clang::Expr *expr = nullptr);
     void set_unchecked(std::string str, bool fresh,
                        clang::Expr *expr = nullptr);
@@ -424,11 +531,12 @@ private:
     }
 
   private:
-    static bool compute_inner_boxed(clang::Expr *expr);
+    bool compute_inner_boxed(clang::Expr *expr) const;
     ComputedExprType &type;
+    clang::ASTContext &ctx;
     std::string value;
     bool pointee_is_boxed = false;
     bool ptr_is_fresh = false;
-  } pending_deref_{computed_expr_type_};
+  } pending_deref_{computed_expr_type_, ctx_};
 };
 } // namespace cpp2rust

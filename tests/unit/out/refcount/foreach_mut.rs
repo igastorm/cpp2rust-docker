@@ -12,57 +12,69 @@ pub fn main() {
 }
 fn main_0() -> i32 {
     let v1: Value<Vec<i32>> = Rc::new(RefCell::new(Vec::new()));
-    (*v1.borrow_mut()).push(1);
-    (*v1.borrow_mut()).push(2);
-    (*v1.borrow_mut()).push(3);
-    let sum: Value<i32> = Rc::new(RefCell::new(0));
+    {
+        let __a1 = 1;
+        (*v1.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 2;
+        (*v1.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 3;
+        (*v1.borrow_mut()).push(__a1)
+    };
+    let mut sum: i32 = 0;
     'loop_: for mut x in v1.as_pointer() as Ptr<i32> {
-        let x: Value<i32> = Rc::new(RefCell::new(x.read()));
-        (*sum.borrow_mut()) += (*x.borrow_mut()).prefix_inc();
+        let mut x: i32 = x.read();
+        sum += x.prefix_inc();
     }
     'loop_: for x in v1.as_pointer() as Ptr<i32> {
-        let x: Value<i32> = Rc::new(RefCell::new(x.read()));
-        (*sum.borrow_mut()) += (*x.borrow());
+        let mut x: i32 = x.read();
+        sum += x;
     }
     'loop_: for mut x in v1.as_pointer() as Ptr<i32> {
         {
-            let _ptr = x.clone();
-            _ptr.write(_ptr.read() + 10)
+            x.with_mut(|__v| *__v = *__v + 10)
         };
     }
     'loop_: for mut x in v1.as_pointer() as Ptr<i32> {
-        let __rhs = (x.read());
-        (*sum.borrow_mut()) += __rhs;
+        sum += { (x.read()) };
     }
     let v2: Value<Vec<Ptr<i32>>> = Rc::new(RefCell::new(Vec::new()));
-    (*v2.borrow_mut()).push(((v1.as_pointer() as Ptr<i32>).offset(0_usize)));
-    (*v2.borrow_mut()).push(((v1.as_pointer() as Ptr<i32>).offset(1_usize)));
-    (*v2.borrow_mut()).push(((v1.as_pointer() as Ptr<i32>).offset(2_usize)));
+    {
+        let __a1 = ((v1.as_pointer() as Ptr<i32>).offset(0_usize));
+        (*v2.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = ((v1.as_pointer() as Ptr<i32>).offset(1_usize));
+        (*v2.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = ((v1.as_pointer() as Ptr<i32>).offset(2_usize));
+        (*v2.borrow_mut()).push(__a1)
+    };
     'loop_: for mut p in v2.as_pointer() as Ptr<Ptr<i32>> {
-        let p: Value<Ptr<i32>> = Rc::new(RefCell::new(p.read()));
+        let mut p: Ptr<i32> = p.read();
         {
-            let _ptr = (*p.borrow()).clone();
-            _ptr.write(_ptr.read() + 5)
+            p.with_mut(|__v| *__v = *__v + 5)
         };
     }
     'loop_: for p in v2.as_pointer() as Ptr<Ptr<i32>> {
-        let p: Value<Ptr<i32>> = Rc::new(RefCell::new(p.read()));
-        let __rhs = ((*p.borrow()).read());
-        (*sum.borrow_mut()) += __rhs;
+        let mut p: Ptr<i32> = p.read();
+        sum += { (p.read()) };
     }
     'loop_: for mut p in v2.as_pointer() as Ptr<Ptr<i32>> {
-        let p: Value<Ptr<i32>> = Rc::new(RefCell::new(p.read()));
+        let mut p: Ptr<i32> = p.read();
         {
-            let _ptr = (*p.borrow()).clone();
-            _ptr.write(_ptr.read() + 5)
+            p.with_mut(|__v| *__v = *__v + 5)
         };
     }
     'loop_: for mut p in v2.as_pointer() as Ptr<Ptr<i32>> {
-        let p: Value<Ptr<i32>> = Rc::new(RefCell::new(p.read()));
-        let __rhs = ((*p.borrow()).read());
-        (*sum.borrow_mut()) += __rhs;
+        let mut p: Ptr<i32> = p.read();
+        sum += { (p.read()) };
     }
-    assert!(((*sum.borrow()) == 168));
+    assert!((sum == 168));
     return 0;
 }
 pub fn __cpp2rust_init_globals() {}

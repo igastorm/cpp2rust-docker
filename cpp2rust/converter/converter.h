@@ -69,11 +69,8 @@ public:
 
   virtual bool VisitPointerType(clang::PointerType *type);
 
-  enum class FnProtoType { LambdaCallOperator, FnPtr };
-
   virtual std::string
-  ConvertFunctionPointerType(const clang::FunctionProtoType *proto,
-                             FnProtoType kind = FnProtoType::FnPtr);
+  ConvertFunctionPointerType(const clang::FunctionProtoType *proto);
 
   virtual bool VisitDecayedType(clang::DecayedType *type);
 
@@ -116,8 +113,6 @@ public:
 
   virtual bool ConvertVarDeclSkipInit(clang::VarDecl *decl);
 
-  virtual bool ConvertLambdaVarDecl(clang::VarDecl *decl);
-
   bool VisitRecordDecl(clang::RecordDecl *decl);
 
   virtual bool VisitCXXRecordDecl(clang::CXXRecordDecl *decl);
@@ -129,7 +124,11 @@ public:
 
   virtual bool EmitsReprCForRecords() const { return true; }
 
+  // CharRustType and CharRustTypeIsSigned should disappear after
+  // https://github.com/Cpp2Rust/cpp2rust/issues/246
   virtual const char *CharRustType() const { return "libc::c_char"; }
+
+  virtual bool CharRustTypeIsSigned() const { return true; }
 
   virtual bool VisitCXXMethodDecl(clang::CXXMethodDecl *decl);
 
@@ -309,16 +308,14 @@ public:
 
   void ConvertParamTy(clang::QualType param_type, clang::Expr *expr);
 
-  // Emits a pointer-type adjustment (const/mut fixup or reinterpret cast)
-  // after `expr` has been converted, for cases where the argument's Rust
-  // pointee type differs from the parameter's Rust pointee type even though
-  // Clang did not insert an implicit cast node for the call argument (e.g.
-  // when two C types are canonically identical, such as `size_t` and
-  // `unsigned long`, but map to different Rust types).
-  virtual void ConvertParamTyPointerCastIfNeeded(clang::QualType param_type,
-                                                 clang::Expr *expr);
+  virtual void ConvertParamTyConstCast(clang::QualType param_type,
+                                       clang::Expr *expr);
 
-  virtual bool FunctionPointerCastNeedsTransmute() const { return true; }
+  std::string ConvertScalarCast(std::string str, clang::QualType to);
+
+  virtual std::string ConvertPointeeCast(std::string str,
+                                         const clang::Expr *from,
+                                         clang::QualType to);
 
   void ConvertFunctionPointerTransmute(clang::Expr *expr, clang::QualType type);
 
@@ -331,6 +328,8 @@ public:
   void ConvertGenericCallExpr(clang::CallExpr *expr);
 
   virtual void EmitFnPtrCall(clang::Expr *callee);
+
+  virtual void ConvertLambdaToFunctionPointer(clang::Expr *lambda);
 
   virtual void
   ConvertFunctionToFunctionPointer(const clang::FunctionDecl *fn_decl);
@@ -402,8 +401,6 @@ public:
 
   virtual bool VisitStmtExpr(clang::StmtExpr *expr);
 
-  virtual void EmitStmtExprTail(clang::Expr *tail);
-
   virtual bool VisitConditionalOperator(clang::ConditionalOperator *expr);
 
   virtual bool VisitDeclRefExpr(clang::DeclRefExpr *expr);
@@ -464,6 +461,15 @@ public:
   virtual bool VisitConstantExpr(clang::ConstantExpr *expr);
 
   virtual bool VisitLambdaExpr(clang::LambdaExpr *expr);
+
+  virtual void ConvertCapturelessLambda(const clang::CXXRecordDecl *decl);
+
+  virtual const char *LambdaMacro() const { return "lambda_unsafe!"; }
+
+  virtual void ConvertLambdaCapture(const clang::FieldDecl *field,
+                                    clang::Expr *init);
+
+  void ConvertLambdaClosure(const clang::CXXRecordDecl *decl);
 
   virtual bool VisitImplicitValueInitExpr(clang::ImplicitValueInitExpr *expr);
   virtual bool VisitCXXScalarValueInitExpr(clang::CXXScalarValueInitExpr *expr);
@@ -580,10 +586,10 @@ protected:
 
   virtual std::string GetDefaultAsStringFallback(clang::QualType qual_type);
 
-  virtual std::string ConvertVarDefaultInit(clang::QualType qual_type);
+  virtual std::string ConvertVarDefaultInit(const clang::VarDecl *decl);
 
   virtual std::string
-  GetOverloadedFunctionName(const clang::FunctionDecl *decl);
+  GetOverloadedFunctionName(const clang::CXXMethodDecl *decl);
 
   virtual std::string GetRecordName(const clang::NamedDecl *decl) const;
 
@@ -596,6 +602,11 @@ protected:
                         llvm::StringRef name) const;
 
   virtual void ConvertVarInit(clang::QualType qual_type, clang::Expr *expr);
+
+  // The initial value of a field of a struct: `init`, or the default value
+  // if null.
+  virtual void ConvertFieldInit(const clang::FieldDecl *field,
+                                clang::Expr *init);
 
   virtual void ConvertUnsignedArithOperand(clang::Expr *expr,
                                            clang::QualType type);
@@ -660,13 +671,15 @@ protected:
 
   virtual void AddCloneTrait(const clang::RecordDecl *decl);
 
+  virtual bool RecordImplementsClone(const clang::RecordDecl *decl);
+
   virtual void AddDefaultTrait(const clang::RecordDecl *decl);
 
   virtual void AddDefaultTraitForUnion(const clang::RecordDecl *decl);
 
   void EmitDefaultStructLiteral(const clang::RecordDecl *decl);
 
-  virtual void AddByteReprTrait(const clang::RecordDecl *decl);
+  virtual void EmitByteSizeAttr(const clang::RecordDecl *decl);
 
   virtual void
   ConvertUnsignedArithBinaryOperator(clang::BinaryOperator *binary_operator,
@@ -726,6 +739,8 @@ protected:
   virtual bool IsReferenceType(const clang::Expr *expr) const;
 
   virtual bool RecordDerivesDefault(const clang::RecordDecl *decl);
+
+  virtual bool TypeDerivesDefault(clang::QualType qual_type);
 
   bool RecordDerivesCopy(const clang::RecordDecl *decl) const;
 
@@ -1063,12 +1078,17 @@ protected:
   virtual std::string
   ConvertFreshRValue(clang::Expr *expr,
                      std::optional<clang::QualType> implicit_convert_to = {});
-  virtual std::string ConvertFreshPointer(clang::Expr *expr);
+  virtual std::string
+  ConvertFreshPointer(clang::Expr *expr,
+                      std::optional<clang::QualType> implicit_convert_to = {});
   // target_ptr_type, when known (e.g. a translation rule's parameter type),
   // is the Rust pointer type the result will be used as.
   virtual std::string ConvertFreshObject(clang::Expr *expr,
                                          std::string_view target_ptr_type = {});
-  std::string ConvertPointer(clang::Expr *expr, int line = __builtin_LINE());
+  std::string
+  ConvertPointer(clang::Expr *expr,
+                 std::optional<clang::QualType> implicit_convert_to = {},
+                 int line = __builtin_LINE());
 
   /// Materialize a temporary for a prvalue bound to a reference parameter.
   /// Returns (binding_code, ref_expression).

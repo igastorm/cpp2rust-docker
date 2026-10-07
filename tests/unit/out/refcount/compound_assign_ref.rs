@@ -12,10 +12,12 @@ pub fn main() {
 }
 fn main_0() -> i32 {
     let v: Value<Vec<i32>> = Rc::new(RefCell::new(Vec::new()));
-    (*v.borrow_mut()).push(10);
     {
-        let _ptr = (v.as_pointer() as Ptr<i32>);
-        _ptr.write(_ptr.read() + 5)
+        let __a1 = 10;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        (v.as_pointer() as Ptr<i32>).with_mut(|__v| *__v = *__v + 5)
     };
     assert!((((v.as_pointer() as Ptr<i32>).read()) == 15));
     return 0;

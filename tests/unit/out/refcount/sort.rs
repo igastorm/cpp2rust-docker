@@ -12,28 +12,55 @@ pub fn main() {
 }
 fn main_0() -> i32 {
     let v: Value<Vec<i32>> = Rc::new(RefCell::new(Vec::new()));
-    (*v.borrow_mut()).push(10);
-    (*v.borrow_mut()).push(1);
-    (*v.borrow_mut()).push(9);
-    (*v.borrow_mut()).push(2);
-    (*v.borrow_mut()).push(8);
-    (*v.borrow_mut()).push(3);
-    (*v.borrow_mut()).push(7);
-    (*v.borrow_mut()).push(4);
-    (*v.borrow_mut()).push(5);
-    (*v.borrow_mut()).push(6);
+    {
+        let __a1 = 10;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 1;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 9;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 2;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 8;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 3;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 7;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 4;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 5;
+        (*v.borrow_mut()).push(__a1)
+    };
+    {
+        let __a1 = 6;
+        (*v.borrow_mut()).push(__a1)
+    };
     (v.as_pointer() as Ptr<i32>).sort((v.as_pointer() as Ptr<i32>).to_end().get_offset());
-    let i: Value<u32> = Rc::new(RefCell::new(0_u32));
-    'loop_: while (((*i.borrow()) as usize) < ((*v.borrow()).len()).wrapping_sub(1_usize)) {
+    let mut i: u32 = 0_u32;
+    'loop_: while ((i as usize) < ((*v.borrow()).len()).wrapping_sub(1_usize)) {
         assert!(
-            (((v.as_pointer() as Ptr<i32>)
-                .offset(((*i.borrow()) as usize))
-                .read())
-                < ((v.as_pointer() as Ptr<i32>)
-                    .offset((((*i.borrow()).wrapping_add(1_u32)) as usize))
-                    .read()))
+            ({ (*v.borrow())[(i as usize)] } < {
+                (*v.borrow())[(((i).wrapping_add(1_u32)) as usize)]
+            })
         );
-        (*i.borrow_mut()).prefix_inc();
+        i.prefix_inc();
     }
     return 0;
 }

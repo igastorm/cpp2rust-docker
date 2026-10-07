@@ -6,13 +6,8 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-pub fn int_cmp_0(v1: AnyPtr, v2: AnyPtr) -> i32 {
-    let v1: Value<AnyPtr> = Rc::new(RefCell::new(v1));
-    let v2: Value<AnyPtr> = Rc::new(RefCell::new(v2));
-    return {
-        let _lhs = ((*v1.borrow()).reinterpret_cast::<i32>().read());
-        _lhs - ((*v2.borrow()).reinterpret_cast::<i32>().read())
-    };
+pub fn int_cmp_0(mut v1: AnyPtr, mut v2: AnyPtr) -> i32 {
+    return ({ (v1.reinterpret_cast::<i32>().read()) } - { (v2.reinterpret_cast::<i32>().read()) });
 }
 pub fn main() {
     __cpp2rust_init_globals();
@@ -20,7 +15,7 @@ pub fn main() {
 }
 fn main_0() -> i32 {
     let a1: Value<Box<[i32]>> = Rc::new(RefCell::new(Box::new([1, 2, 3])));
-    let vptr1: Value<AnyPtr> = Rc::new(RefCell::new({
+    let mut vptr1: AnyPtr = {
         let __base = ((a1.as_pointer() as Ptr<i32>) as Ptr<i32>)
             .to_any()
             .reinterpret_cast::<u8>();
@@ -45,11 +40,12 @@ fn main_0() -> i32 {
             }
         }
         __found
-    }));
-    assert!({
-        let _lhs = (*vptr1.borrow()).clone();
-        _lhs == (((a1.as_pointer() as Ptr<i32>).offset(0)) as Ptr<i32>).to_any()
-    });
+    };
+    assert!(
+        ({ (vptr1).clone() } == {
+            (((a1.as_pointer() as Ptr<i32>).offset(0)) as Ptr<i32>).to_any()
+        })
+    );
     return 0;
 }
 pub fn __cpp2rust_init_globals() {}

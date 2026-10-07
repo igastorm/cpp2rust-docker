@@ -26,6 +26,8 @@
 
 #include "converter/lex.h"
 #include "converter/mapper.h"
+#include "converter/printer.h"
+#include "converter/rules/registry.h"
 
 // https://doc.rust-lang.org/reference/keywords.html
 static const char rust_keywords[][12] = {
@@ -244,6 +246,24 @@ bool RefersToUserDefinedDecl(const clang::Expr *expr) {
   return decl && IsUserDefinedDecl(decl);
 }
 
+llvm::APSInt GetIntegerLiteralValue(const clang::ASTContext &ctx,
+                                    const clang::IntegerLiteral *expr,
+                                    const clang::QualType *type,
+                                    bool char_is_signed) {
+  auto value = expr->getValue();
+  bool is_signed = false;
+  if (type && (*type)->isBuiltinType() && (*type)->isIntegerType() &&
+      !(*type)->isBooleanType()) {
+    value = value.zextOrTrunc(ctx.getIntWidth(*type));
+    is_signed =
+        (*type)->isSpecificBuiltinType(clang::BuiltinType::Char_S) ||
+                (*type)->isSpecificBuiltinType(clang::BuiltinType::Char_U)
+            ? char_is_signed
+            : (*type)->isSignedIntegerType();
+  }
+  return llvm::APSInt(value, !is_signed);
+}
+
 bool IsUnsignedArithOp(const clang::BinaryOperator *expr) {
   clang::QualType lhs_type;
   clang::QualType rhs_type;
@@ -268,30 +288,6 @@ bool IsMut(clang::QualType qual_type) {
   return !qual_type.isConstQualified() &&
          !(qual_type->isReferenceType() &&
            qual_type->getPointeeType().isConstQualified());
-}
-
-bool TypeImplementsByteRepr(clang::QualType qt) {
-  if (qt->isIntegerType() || qt->isFloatingType() || qt->isEnumeralType()) {
-    return true;
-  }
-  if (qt->isPointerType()) {
-    return true;
-  }
-  if (const auto *arr = qt->getAsArrayTypeUnsafe()) {
-    return TypeImplementsByteRepr(arr->getElementType());
-  }
-  if (const auto *rd = qt->getAsRecordDecl()) {
-    if (rd->isUnion()) {
-      return true;
-    }
-    for (const auto *field : rd->fields()) {
-      if (!TypeImplementsByteRepr(field->getType())) {
-        return false;
-      }
-    }
-    return true;
-  }
-  return false;
 }
 
 bool RustSizeDivergesFromC(clang::QualType qt) {
@@ -350,6 +346,24 @@ bool IsOverloadedMethod(const clang::CXXMethodDecl *decl) {
                        [&method_name](const auto *method) {
                          return method->getNameAsString() == method_name;
                        }) > 1;
+}
+
+unsigned GetMethodIndex(const clang::CXXMethodDecl *decl) {
+  const clang::Decl *key = decl->getCanonicalDecl();
+  if (auto *tmpl = decl->getPrimaryTemplate()) {
+    key = tmpl->getCanonicalDecl();
+  }
+  unsigned index = 0;
+  for (auto *d : decl->getParent()->decls()) {
+    if (clang::isa<clang::CXXMethodDecl, clang::FunctionTemplateDecl>(d)) {
+      ++index;
+      if (d->getCanonicalDecl() == key) {
+        return index;
+      }
+    }
+  }
+  assert(false && "method not found in its record");
+  return 0;
 }
 
 const char *GetCopyOrMoveName(const clang::CXXMethodDecl *method) {
@@ -459,10 +473,6 @@ bool HasDefaultedCopyConstructor(const clang::RecordDecl *decl) {
     }
   }
   return !cxx->defaultedCopyConstructorIsDeleted();
-}
-
-bool RecordDerivesByteRepr(const clang::RecordDecl *decl) {
-  return !decl->isUnion() && decl->field_empty();
 }
 
 bool RecordHasOnlyReferenceFields(const clang::RecordDecl *decl) {
@@ -626,7 +636,8 @@ unsigned GetCtorIndex(clang::CXXConstructorDecl *ctor) {
 clang::CXXConstructorDecl *
 GetUserDefinedDefaultConstructor(const clang::CXXRecordDecl *decl) {
   for (auto c : decl->ctors()) {
-    if (c->isUserProvided() && c->isDefaultConstructor() && c->hasBody()) {
+    if (c->isUserProvided() && c->isDefaultConstructor() && c->hasBody() &&
+        std::ranges::all_of(c->parameters(), HasUsableDefaultArg)) {
       return c;
     }
   }
@@ -635,6 +646,15 @@ GetUserDefinedDefaultConstructor(const clang::CXXRecordDecl *decl) {
 
 bool HasUsableDefaultArg(const clang::ParmVarDecl *param) {
   return param->hasDefaultArg() && !param->hasUninstantiatedDefaultArg();
+}
+
+const clang::MaterializeTemporaryExpr *
+GetDefaultArgTemporary(const clang::ParmVarDecl *param) {
+  if (!param->getType()->isReferenceType()) {
+    return nullptr;
+  }
+  return clang::dyn_cast<clang::MaterializeTemporaryExpr>(
+      param->getDefaultArg()->IgnoreParens());
 }
 
 std::string GetMainFileName(const clang::ASTContext &ctx) {
@@ -699,6 +719,7 @@ static std::string GetParamSignature(const clang::Decl *decl) {
 }
 
 static std::string GetLexicalSpecializationID(const clang::Decl *decl) {
+  auto &ctx = decl->getASTContext();
   std::string id;
   if (const auto *var =
           clang::dyn_cast<clang::VarTemplateSpecializationDecl>(decl)) {
@@ -706,18 +727,18 @@ static std::string GetLexicalSpecializationID(const clang::Decl *decl) {
   }
   if (const auto *self =
           clang::dyn_cast<clang::ClassTemplateSpecializationDecl>(decl)) {
-    id += Mapper::ToString(Mapper::GetTypeForDecl(self));
+    id += Printer::ToString(ctx, GetTypeForDecl(ctx, self));
   }
   if (const auto *spec =
           clang::dyn_cast<clang::ClassTemplateSpecializationDecl>(
               decl->getLexicalDeclContext());
       spec && decl->getLexicalDeclContext() != decl->getDeclContext()) {
-    id += Mapper::ToString(Mapper::GetTypeForDecl(spec));
+    id += Printer::ToString(ctx, GetTypeForDecl(ctx, spec));
   }
   for (const auto *dc = decl->getDeclContext(); dc; dc = dc->getParent()) {
     if (const auto *spec =
             clang::dyn_cast<clang::ClassTemplateSpecializationDecl>(dc)) {
-      id += Mapper::ToString(Mapper::GetTypeForDecl(spec));
+      id += Printer::ToString(ctx, GetTypeForDecl(ctx, spec));
     }
     if (const auto *fn = clang::dyn_cast<clang::FunctionDecl>(dc);
         fn && fn->getTemplateSpecializationArgs()) {
@@ -735,6 +756,35 @@ std::string GetID(const clang::Decl *decl) {
 
 std::string GetMethodID(const clang::CXXMethodDecl *decl) {
   return decl->getQualifiedNameAsString() + GetID(decl);
+}
+
+clang::QualType GetTypeForDecl(clang::ASTContext &ctx,
+                               const clang::NamedDecl *decl) {
+  if (const auto *spec =
+          llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(decl)) {
+    llvm::ArrayRef<clang::TemplateArgument> args =
+        spec->getTemplateArgs().asArray();
+    llvm::SmallVector<clang::TemplateArgument, 4> canon(args.begin(),
+                                                        args.end());
+    ctx.canonicalizeTemplateArguments(canon);
+
+    return ctx.getTemplateSpecializationType(
+        clang::ElaboratedTypeKeyword::None,
+        clang::TemplateName(spec->getSpecializedTemplate()), args, canon);
+  }
+
+  const auto *rdecl = llvm::dyn_cast<clang::TagDecl>(decl);
+  assert(rdecl && "Unsupported decl type");
+
+  return ctx.getTagType(clang::ElaboratedTypeKeyword::None,
+                        rdecl->getQualifier(), rdecl, /*OwnsTag*/ false);
+}
+
+bool HasFunctionParameterPack(const clang::FunctionDecl *decl) {
+  if (auto *primary = decl->getPrimaryTemplate()) {
+    decl = primary->getTemplatedDecl();
+  }
+  return decl->getNumParams() && decl->parameters().back()->isParameterPack();
 }
 
 std::string DisambiguateAnonymousTag(const clang::TagDecl *tag) {
@@ -779,6 +829,14 @@ std::string GetNamedDeclAsString(const clang::NamedDecl *decl) {
                                                  : decl->getNameAsString();
   if (auto *fn = clang::dyn_cast<clang::FunctionDecl>(decl)) {
     name = GetFunctionBaseName(fn);
+  }
+
+  if (auto field = clang::dyn_cast<clang::FieldDecl>(decl)) {
+    if (auto capture = AsLambdaCapture(field)) {
+      return capture->capturesThis()
+                 ? "this_"
+                 : GetNamedDeclAsString(capture->getCapturedVar());
+    }
   }
 
   // Anonymous record or enum
@@ -1009,6 +1067,97 @@ bool IsImplicitAssignmentCall(const clang::CallExpr *expr) {
     return false;
   }
   return !IsConvertibleMoveAssignment(method);
+}
+
+const clang::CXXRecordDecl *AsLambdaClass(clang::QualType type) {
+  auto decl = type->getAsCXXRecordDecl();
+  return decl && decl->isLambda() ? decl : nullptr;
+}
+
+const clang::CXXMethodDecl *
+AsLambdaOperatorCall(const clang::FunctionDecl *fn) {
+  auto method = clang::dyn_cast_or_null<clang::CXXMethodDecl>(fn);
+  if (!method || !method->getParent()->isLambda() ||
+      method->getOverloadedOperator() != clang::OO_Call) {
+    return nullptr;
+  }
+  return method;
+}
+
+const clang::LambdaCapture *AsLambdaCapture(const clang::FieldDecl *field) {
+  auto decl = clang::dyn_cast<clang::CXXRecordDecl>(field->getParent());
+  if (!decl || !decl->isLambda()) {
+    return nullptr;
+  }
+  return decl->captures_begin() + field->getFieldIndex();
+}
+
+clang::Expr *AsLambdaUncapturedConstant(const clang::FunctionDecl *fn,
+                                        clang::DeclRefExpr *expr) {
+  if (!AsLambdaOperatorCall(fn)) {
+    return nullptr;
+  }
+  if (expr->isNonOdrUse() != clang::NOUR_Constant) {
+    return nullptr;
+  }
+  auto var = clang::dyn_cast<clang::VarDecl>(expr->getDecl());
+  if (!var || !var->hasLocalStorage()) {
+    return nullptr;
+  }
+  if (var->getDeclContext() == fn) {
+    return nullptr;
+  }
+  return var->getInit();
+}
+
+static const clang::FieldDecl *
+AsLambdaCaptureField(const clang::FunctionDecl *fn, const clang::Expr *expr) {
+  auto call = AsLambdaOperatorCall(fn);
+  auto ref = clang::dyn_cast<clang::DeclRefExpr>(expr);
+  if (!call || !ref || !ref->refersToEnclosingVariableOrCapture()) {
+    return nullptr;
+  }
+  llvm::DenseMap<const clang::ValueDecl *, clang::FieldDecl *> fields;
+  clang::FieldDecl *this_field = nullptr;
+  call->getParent()->getCaptureFields(fields, this_field);
+  auto field = fields.lookup(ref->getDecl());
+  assert(field && "captured variable without a capture field");
+  return field;
+}
+
+const clang::FieldDecl *AsLambdaCaptureThis(const clang::FunctionDecl *fn) {
+  auto call = AsLambdaOperatorCall(fn);
+  if (!call) {
+    return nullptr;
+  }
+  for (auto field : call->getParent()->fields()) {
+    if (AsLambdaCapture(field)->capturesThis()) {
+      return field;
+    }
+  }
+  return nullptr;
+}
+
+clang::QualType GetDeclRefType(const clang::FunctionDecl *fn,
+                               const clang::Expr *expr,
+                               const clang::ValueDecl *decl) {
+  auto field = AsLambdaCaptureField(fn, expr);
+  return field ? field->getType() : decl->getType();
+}
+
+bool HasStaticLocal(const clang::Stmt *stmt) {
+  if (!stmt) {
+    return false;
+  }
+  if (auto decl_stmt = clang::dyn_cast<clang::DeclStmt>(stmt)) {
+    for (auto decl : decl_stmt->decls()) {
+      if (auto var = clang::dyn_cast<clang::VarDecl>(decl);
+          var && var->isStaticLocal()) {
+        return true;
+      }
+    }
+  }
+  return llvm::any_of(stmt->children(), HasStaticLocal);
 }
 
 bool IsUserOperatorCall(const clang::CXXOperatorCallExpr *expr) {
@@ -1316,6 +1465,16 @@ GetAllVars(const clang::Stmt *stmt) {
   return vars;
 }
 
+bool ReadsMemory(const clang::Stmt *stmt) {
+  if (auto *cast = clang::dyn_cast<clang::ImplicitCastExpr>(stmt);
+      cast && cast->getCastKind() == clang::CK_LValueToRValue) {
+    return true;
+  }
+  return std::ranges::any_of(stmt->children(), [](const clang::Stmt *child) {
+    return child && ReadsMemory(child);
+  });
+}
+
 bool ReferencesThis(const clang::Stmt *stmt) {
   if (!stmt) {
     return false;
@@ -1428,11 +1587,12 @@ bool HasReceiver(clang::Expr *expr) {
 
 std::optional<clang::QualType> GetParamImplicitConvertTarget(clang::Expr *expr,
                                                              unsigned arg_idx) {
-  auto *call = clang::dyn_cast<clang::CallExpr>(expr);
-  if (!call) {
-    return std::nullopt;
+  const clang::FunctionDecl *fn = nullptr;
+  if (auto *call = clang::dyn_cast<clang::CallExpr>(expr)) {
+    fn = call->getDirectCallee();
+  } else if (auto *ctor = clang::dyn_cast<clang::CXXConstructExpr>(expr)) {
+    fn = ctor->getConstructor();
   }
-  auto *fn = call->getDirectCallee();
   if (!fn) {
     return std::nullopt;
   }
@@ -1440,19 +1600,19 @@ std::optional<clang::QualType> GetParamImplicitConvertTarget(clang::Expr *expr,
   if (param_idx >= fn->getNumParams()) {
     return std::nullopt;
   }
-  return fn->getParamDecl(param_idx)->getType();
+  return fn->getParamDecl(param_idx)->getType().getNonReferenceType();
 }
 
 std::optional<IteratorCategory>
-GetStrongestIteratorCategory(clang::QualType type) {
+GetStrongestIteratorCategory(clang::ASTContext &ctx, clang::QualType type) {
   type = type.getNonReferenceType().getUnqualifiedType();
-  if (!Mapper::Contains(type)) {
+  if (!Mapper::Contains(ctx, type)) {
     return std::nullopt;
   }
-  if (Mapper::MapsToRefcountPointer(type)) {
+  if (RuleRegistry::MapsToRefcountPointer(ctx, type)) {
     return IteratorCategory::Contiguous;
   }
-  auto mapped = Mapper::Map(type);
+  auto mapped = Mapper::Map(ctx, type);
   if (mapped.empty()) {
     return std::nullopt;
   }
@@ -1529,15 +1689,85 @@ bool IsBuiltinVaStart(const clang::CallExpr *expr) {
   return false;
 }
 
-bool NeedsImplicitScalarCast(clang::QualType from, clang::QualType to) {
+bool NeedsImplicitScalarCast(clang::ASTContext &ctx, clang::QualType from,
+                             clang::QualType to) {
   return !from.isNull() && !to.isNull() && from->isIntegerType() &&
          to->isIntegerType() &&
          from.getCanonicalType().getUnqualifiedType() ==
              to.getCanonicalType().getUnqualifiedType() &&
-         Mapper::Map(from) != Mapper::Map(to);
+         Mapper::Map(ctx, from) != Mapper::Map(ctx, to);
 }
 
-bool NeedsRefBindingTemp(const clang::Expr *arg, clang::QualType param_type) {
+clang::QualType GetExprPointee(clang::ASTContext &ctx, const clang::Expr *from,
+                               clang::QualType to) {
+  auto type = from->IgnoreImplicit()->getType().getNonReferenceType();
+  if (to->isReferenceType()) {
+    return type;
+  }
+  if (auto *array = ctx.getAsArrayType(type)) {
+    return array->getElementType();
+  }
+  if (type->isPointerType()) {
+    return type->getPointeeType();
+  }
+  if (type->isFunctionType()) {
+    return type;
+  }
+  return {};
+}
+
+static bool PointeeMappingDiffers(clang::ASTContext &ctx, clang::QualType from,
+                                  clang::QualType to) {
+  while (true) {
+    if ((from->isPointerType() && to->isPointerType()) ||
+        (from->isReferenceType() && to->isReferenceType())) {
+      from = from->getPointeeType();
+      to = to->getPointeeType();
+    } else if (auto *from_array = ctx.getAsArrayType(from),
+               *to_array = ctx.getAsArrayType(to);
+               from_array && to_array) {
+      from = from_array->getElementType();
+      to = to_array->getElementType();
+    } else {
+      break;
+    }
+  }
+  if (auto *from_fn = from->getAs<clang::FunctionProtoType>(),
+      *to_fn = to->getAs<clang::FunctionProtoType>();
+      from_fn && to_fn && from_fn->getNumParams() == to_fn->getNumParams()) {
+    if (PointeeMappingDiffers(ctx, from_fn->getReturnType(),
+                              to_fn->getReturnType())) {
+      return true;
+    }
+    for (unsigned i = 0; i < from_fn->getNumParams(); ++i) {
+      if (PointeeMappingDiffers(ctx, from_fn->getParamType(i),
+                                to_fn->getParamType(i))) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return from.getCanonicalType().getUnqualifiedType() ==
+             to.getCanonicalType().getUnqualifiedType() &&
+         Mapper::Map(ctx, from) != Mapper::Map(ctx, to);
+}
+
+bool NeedsImplicitPointeeCast(clang::ASTContext &ctx, const clang::Expr *from,
+                              clang::QualType to) {
+  if (!to->isReferenceType() && !to->isPointerType()) {
+    return false;
+  }
+  if (to->isReferenceType() &&
+      clang::isa<clang::MaterializeTemporaryExpr>(from->IgnoreImpCasts())) {
+    return false;
+  }
+  auto pointee = GetExprPointee(ctx, from, to);
+  return !pointee.isNull() &&
+         PointeeMappingDiffers(ctx, pointee, to->getPointeeType());
+}
+
+bool NeedsRefBindingTemp(clang::ASTContext &ctx, const clang::Expr *arg,
+                         clang::QualType param_type) {
   if (!param_type->isReferenceType()) {
     return false;
   }
@@ -1553,28 +1783,27 @@ bool NeedsRefBindingTemp(const clang::Expr *arg, clang::QualType param_type) {
   //   void foo(const size_t &) {}     <-- size_t        -> usize
   //   unsigned long x = 1; foo(x);    <-- unsigned long -> u64
   return param_type->getPointeeType().isConstQualified() &&
-         NeedsImplicitScalarCast(arg->IgnoreImplicit()->getType(),
+         NeedsImplicitScalarCast(ctx, arg->IgnoreImplicit()->getType(),
                                  param_type.getNonReferenceType());
 }
 
-bool IsSizeType(clang::QualType type) {
-  auto rust_type = Mapper::Map(type);
+bool IsSizeType(clang::ASTContext &ctx, clang::QualType type) {
+  auto rust_type = Mapper::Map(ctx, type);
   return rust_type == "usize" || rust_type == "isize";
 }
 
-std::optional<clang::QualType>
-GetOperandImplicitConversionTarget(const clang::BinaryOperator *op,
-                                   const clang::Expr *operand,
-                                   const clang::Expr *sibling) {
+std::optional<clang::QualType> GetOperandImplicitConversionTarget(
+    clang::ASTContext &ctx, const clang::BinaryOperator *op,
+    const clang::Expr *operand, const clang::Expr *sibling) {
   if (op->isComparisonOp()) {
-    if (NeedsImplicitScalarCast(operand->getType(), sibling->getType()) &&
-        IsSizeType(sibling->getType())) {
+    if (NeedsImplicitScalarCast(ctx, operand->getType(), sibling->getType()) &&
+        IsSizeType(ctx, sibling->getType())) {
       return sibling->getType();
     }
     return std::nullopt;
   }
   if ((op->isAdditiveOp() || op->isMultiplicativeOp() || op->isBitwiseOp()) &&
-      NeedsImplicitScalarCast(operand->getType(), op->getType())) {
+      NeedsImplicitScalarCast(ctx, operand->getType(), op->getType())) {
     return op->getType();
   }
   return std::nullopt;

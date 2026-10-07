@@ -6,35 +6,14 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-#[derive(Default)]
+#[derive(DeepClone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(32)]
 pub struct S {
+    #[offset(0)]
+    #[byte_size(24)]
     pub v: Value<Vec<i32>>,
-    pub a: Value<i32>,
-}
-impl Clone for S {
-    fn clone(&self) -> Self {
-        let __this: Value<S> = Rc::new(RefCell::new(Self {
-            v: Rc::new(RefCell::new((*self.v.borrow()).clone())),
-            a: Rc::new(RefCell::new((*self.a.borrow()))),
-        }));
-        let this: Ptr<S> = __this.as_pointer();
-        Rc::try_unwrap(__this).ok().unwrap().into_inner()
-    }
-}
-impl ByteRepr for S {
-    fn byte_size() -> usize {
-        32
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        (*self.v.borrow()).to_bytes(&mut buf[0..24]);
-        (*self.a.borrow()).to_bytes(&mut buf[24..28]);
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        Self {
-            v: Rc::new(RefCell::new(<Vec<i32>>::from_bytes(&buf[0..24]))),
-            a: Rc::new(RefCell::new(<i32>::from_bytes(&buf[24..28]))),
-        }
-    }
+    #[offset(24)]
+    pub a: i32,
 }
 pub fn main() {
     __cpp2rust_init_globals();
@@ -42,10 +21,13 @@ pub fn main() {
 }
 fn main_0() -> i32 {
     let s: Value<S> = Rc::new(RefCell::new(<S>::default()));
-    (*(*s.borrow()).v.borrow_mut()).push(1);
-    'loop_: for mut e in (*s.borrow()).v.as_pointer() as Ptr<i32> {
-        let e: Value<i32> = Rc::new(RefCell::new(e.read()));
-        (*(*s.borrow()).a.borrow_mut()).postfix_inc();
+    {
+        let __a1 = 1;
+        (*{ (*s.borrow()).v.clone() }.borrow_mut()).push(__a1)
+    };
+    'loop_: for mut e in { (*s.borrow()).v.as_pointer() } as Ptr<i32> {
+        let mut e: i32 = e.read();
+        (*s.borrow_mut()).a.postfix_inc();
     }
     return 0;
 }

@@ -6,15 +6,9 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-pub fn switch_complex_cond_0(p: Ptr<i32>, bias: i32) -> i32 {
-    let p: Value<Ptr<i32>> = Rc::new(RefCell::new(p));
-    let bias: Value<i32> = Rc::new(RefCell::new(bias));
+pub fn switch_complex_cond_0(mut p: Ptr<i32>, mut bias: i32) -> i32 {
     'switch: {
-        let __match_cond = {
-            let _lhs = ((*p.borrow()).read());
-            _lhs + (*bias.borrow())
-        };
-        match __match_cond {
+        match { ({ (p.read()) } + { bias }) } {
             __v if __v == 0 => {
                 return 1;
             }

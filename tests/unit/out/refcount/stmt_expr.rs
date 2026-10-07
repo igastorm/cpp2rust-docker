@@ -11,40 +11,34 @@ pub fn main() {
     std::process::exit(main_0());
 }
 fn main_0() -> i32 {
-    let x: Value<i32> = Rc::new(RefCell::new({
-        let a: Value<i32> = Rc::new(RefCell::new(1));
-        let b: Value<i32> = Rc::new(RefCell::new(2));
-        let __result = ((*a.borrow()) + (*b.borrow()));
-        __result
-    }));
-    assert!(((*x.borrow()) == 3));
-    let counter: Value<i32> = Rc::new(RefCell::new(0));
-    let y: Value<i32> = Rc::new(RefCell::new({
-        (*counter.borrow_mut()).postfix_inc();
-        let __result = ((*counter.borrow()) * 10);
-        __result
-    }));
-    assert!(((*y.borrow()) == 10));
-    assert!(((*counter.borrow()) == 1));
-    let z: Value<i32> = Rc::new(RefCell::new({
-        let v: Value<i32> = Rc::new(RefCell::new(5));
-        if ((*v.borrow()) > 0) {
-            let __rhs = ((*v.borrow()) * 2);
-            (*v.borrow_mut()) = __rhs;
+    let mut x: i32 = {
+        let mut a: i32 = 1;
+        let mut b: i32 = 2;
+        (a + b)
+    };
+    assert!((x == 3));
+    let mut counter: i32 = 0;
+    let mut y: i32 = {
+        counter.postfix_inc();
+        (counter * 10)
+    };
+    assert!((y == 10));
+    assert!((counter == 1));
+    let mut z: i32 = {
+        let mut v: i32 = 5;
+        if (v > 0) {
+            v = { (v * 2) };
         }
-        let __result = (*v.borrow());
-        __result
-    }));
-    assert!(((*z.borrow()) == 10));
+        v
+    };
+    assert!((z == 10));
     assert!(
         ({
-            let inner: Value<i32> = Rc::new(RefCell::new({
-                let a: Value<i32> = Rc::new(RefCell::new(100));
-                let __result = (*a.borrow());
-                __result
-            }));
-            let __result = (*inner.borrow());
-            __result
+            let mut inner: i32 = {
+                let mut a: i32 = 100;
+                a
+            };
+            inner
         } == 100)
     );
     return 0;

@@ -6,68 +6,42 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-#[derive()]
+#[derive(DeepClone, Record, ByteRepr, VaArg, FnPtrArg)]
+#[byte_size(16)]
 pub struct record {
-    pub code: Value<u16>,
-    pub lo: Value<u16>,
-    pub hi: Value<u32>,
-    pub pad: Value<Box<[u8]>>,
-}
-impl Clone for record {
-    fn clone(&self) -> Self {
-        Self {
-            code: Rc::new(RefCell::new((*self.code.borrow()).clone())),
-            lo: Rc::new(RefCell::new((*self.lo.borrow()).clone())),
-            hi: Rc::new(RefCell::new((*self.hi.borrow()).clone())),
-            pad: Rc::new(RefCell::new((*self.pad.borrow()).clone())),
-        }
-    }
+    #[offset(0)]
+    pub code: u16,
+    #[offset(2)]
+    pub lo: u16,
+    #[offset(4)]
+    pub hi: u32,
+    #[offset(8)]
+    #[byte_size(8)]
+    pub pad: Value<Box<[i8]>>,
 }
 impl Default for record {
     fn default() -> Self {
         record {
-            code: Rc::new(RefCell::new(0_u16)),
-            lo: Rc::new(RefCell::new(0_u16)),
-            hi: Rc::new(RefCell::new(0_u32)),
-            pad: Rc::new(RefCell::new((0..8).map(|_| 0_u8).collect::<Box<[u8]>>())),
+            code: 0_u16,
+            lo: 0_u16,
+            hi: 0_u32,
+            pad: Rc::new(RefCell::new((0..8).map(|_| 0_i8).collect::<Box<[i8]>>())),
         }
     }
 }
-impl ByteRepr for record {
-    fn byte_size() -> usize {
-        16
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        (*self.code.borrow()).to_bytes(&mut buf[0..2]);
-        (*self.lo.borrow()).to_bytes(&mut buf[2..4]);
-        (*self.hi.borrow()).to_bytes(&mut buf[4..8]);
-        (*self.pad.borrow()).to_bytes(&mut buf[8..16]);
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        Self {
-            code: Rc::new(RefCell::new(<u16>::from_bytes(&buf[0..2]))),
-            lo: Rc::new(RefCell::new(<u16>::from_bytes(&buf[2..4]))),
-            hi: Rc::new(RefCell::new(<u32>::from_bytes(&buf[4..8]))),
-            pad: Rc::new(RefCell::new(<Box<[u8]>>::from_bytes(&buf[8..16]))),
-        }
-    }
-}
+#[derive(ByteRepr, DeepClone)]
+#[byte_size(128)]
 pub struct anon_0 {
+    #[offset(0)]
+    #[byte_size(128)]
     __bytes: Value<Box<[u8]>>,
 }
 impl anon_0 {
     pub fn h(&self) -> Ptr<record> {
         (self.__bytes.as_pointer() as Ptr<u8>).reinterpret_cast()
     }
-    pub fn raw_(&self) -> Ptr<u8> {
+    pub fn raw_(&self) -> Ptr<i8> {
         (self.__bytes.as_pointer() as Ptr<u8>).reinterpret_cast()
-    }
-}
-impl Clone for anon_0 {
-    fn clone(&self) -> Self {
-        anon_0 {
-            __bytes: Rc::new(RefCell::new(self.__bytes.borrow().clone())),
-        }
     }
 }
 impl Default for anon_0 {
@@ -77,46 +51,14 @@ impl Default for anon_0 {
         }
     }
 }
-impl ByteRepr for anon_0 {
-    fn byte_size() -> usize {
-        128
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        buf.copy_from_slice(&self.__bytes.borrow());
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        anon_0 {
-            __bytes: Rc::new(RefCell::new(Box::from(buf))),
-        }
-    }
-}
-#[derive(Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(128)]
 pub struct Container {
-    pub view: Value<anon_0>,
+    #[offset(0)]
+    #[byte_size(128)]
+    pub view: anon_0,
 }
-impl Clone for Container {
-    fn clone(&self) -> Self {
-        Self {
-            view: Rc::new(RefCell::new((*self.view.borrow()).clone())),
-        }
-    }
-}
-impl ByteRepr for Container {
-    fn byte_size() -> usize {
-        128
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        (*self.view.borrow()).to_bytes(&mut buf[0..128]);
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        Self {
-            view: Rc::new(RefCell::new(<anon_0>::from_bytes(&buf[0..128]))),
-        }
-    }
-}
-pub fn fill_1(out: AnyPtr, cap: usize) {
-    let out: Value<AnyPtr> = Rc::new(RefCell::new(out));
-    let cap: Value<usize> = Rc::new(RefCell::new(cap));
+pub fn fill_1(mut out: AnyPtr, mut cap: usize) {
     let src: Value<Box<[u8]>> = Rc::new(RefCell::new(Box::new([
         0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8, 0_u8,
         0_u8,
@@ -129,19 +71,17 @@ pub fn fill_1(out: AnyPtr, cap: usize) {
     (*src.borrow_mut())[(5) as usize] = 0_u8;
     (*src.borrow_mut())[(6) as usize] = 0_u8;
     (*src.borrow_mut())[(7) as usize] = 1_u8;
-    let n: Value<usize> = Rc::new(RefCell::new(
-        (if (((::std::mem::size_of::<[u8; 16]>() < (*cap.borrow())) as i32) != 0) {
-            (::std::mem::size_of::<[u8; 16]>() as u64)
-        } else {
-            ((*cap.borrow()) as u64)
-        } as usize),
-    ));
+    let mut n: usize = (if (((::std::mem::size_of::<[u8; 16]>() < cap) as i32) != 0) {
+        (::std::mem::size_of::<[u8; 16]>() as u64)
+    } else {
+        (cap as u64)
+    } as usize);
     {
-        (*out.borrow()).memcpy(
+        out.memcpy(
             &((src.as_pointer() as Ptr<u8>) as Ptr<u8>).to_any(),
-            (*n.borrow()) as usize,
+            n as usize,
         );
-        (*out.borrow()).clone()
+        (out).clone()
     };
 }
 pub fn main() {
@@ -157,52 +97,44 @@ fn main_0() -> i32 {
         ((c.as_pointer()) as Ptr<Container>).to_any()
     };
     ({
-        let _out: AnyPtr = ((*c.borrow()).view.as_pointer()).to_any();
+        let _out: AnyPtr = (field_ptr!(c.as_pointer(), view)).to_any();
         let _cap: usize = 128usize;
         fill_1(_out, _cap)
     });
+    assert!((((((*c.borrow()).view.h().with(|__s| __s.code) as i32) == 2) as i32) != 0));
     assert!(
-        (((((*(*(*(*c.borrow()).view.borrow()).h().upgrade().deref())
-            .code
-            .borrow()) as i32)
-            == 2) as i32)
-            != 0)
-    );
-    assert!(
-        ((((((((*(*(*c.borrow()).view.borrow()).h().upgrade().deref())
-            .lo
-            .as_pointer())
-        .reinterpret_cast::<u8>())
-        .offset((0) as isize)
+        (((((elem!(
+            ((field_ptr!((*c.borrow()).view.h(), lo)).reinterpret_cast::<u8>()),
+            0
+        )
         .read()) as i32)
             == 0) as i32)
             != 0)
     );
     assert!(
-        ((((((((*(*(*c.borrow()).view.borrow()).h().upgrade().deref())
-            .lo
-            .as_pointer())
-        .reinterpret_cast::<u8>())
-        .offset((1) as isize)
+        (((((elem!(
+            ((field_ptr!((*c.borrow()).view.h(), lo)).reinterpret_cast::<u8>()),
+            1
+        )
         .read()) as i32)
             == 80) as i32)
             != 0)
     );
     assert!(
-        (((((((*(*c.borrow()).view.borrow())
-            .raw_()
-            .reinterpret_cast::<u8>() as Ptr::<u8>)
-            .offset((0) as isize)
-            .read()) as i32)
+        (((((elem!(
+            ((*c.borrow()).view.raw_().reinterpret_cast::<i8>() as Ptr::<i8>),
+            0
+        )
+        .read()) as i32)
             == 2) as i32)
             != 0)
     );
     assert!(
-        ((((((((*(*c.borrow()).view.borrow())
-            .raw_()
-            .reinterpret_cast::<u8>() as Ptr::<u8>)
-            .offset((3) as isize)
-            .read()) as u8) as i32)
+        ((((((elem!(
+            ((*c.borrow()).view.raw_().reinterpret_cast::<i8>() as Ptr::<i8>),
+            3
+        )
+        .read()) as u8) as i32)
             == 80) as i32)
             != 0)
     );

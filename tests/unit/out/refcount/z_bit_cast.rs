@@ -6,12 +6,8 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-pub fn decay_cast_0(a1: Ptr<u32>) {
-    let a1: Value<Ptr<u32>> = Rc::new(RefCell::new(a1));
-}
-pub fn bit_cast_1(p: AnyPtr) {
-    let p: Value<AnyPtr> = Rc::new(RefCell::new(p));
-}
+pub fn decay_cast_0(mut a1: Ptr<u32>) {}
+pub fn bit_cast_1(mut p: AnyPtr) {}
 pub fn main() {
     __cpp2rust_init_globals();
     std::process::exit(main_0());
@@ -23,19 +19,13 @@ fn main_0() -> i32 {
     ({ bit_cast_1(((a1.as_pointer() as Ptr<u32>) as Ptr<u32>).to_any()) });
     ({ bit_cast_1((((a1.as_pointer() as Ptr<u32>).offset(0)) as Ptr<u32>).to_any()) });
     ({ bit_cast_1(((a1.as_pointer()) as Ptr<u32>).to_any()) });
-    let ptr: Value<AnyPtr> = Rc::new(RefCell::new(
-        ((a1.as_pointer() as Ptr<u32>) as Ptr<u32>).to_any(),
-    ));
-    assert!({
-        let _lhs = (*ptr.borrow()).clone();
-        _lhs == ((a1.as_pointer() as Ptr<u32>) as Ptr<u32>).to_any()
-    });
-    assert!({
-        let _lhs = (((*ptr.borrow()).reinterpret_cast::<u32>())
-            .offset((0) as isize)
-            .read());
-        _lhs == (*a1.borrow())[(0) as usize]
-    });
+    let mut ptr: AnyPtr = ((a1.as_pointer() as Ptr<u32>) as Ptr<u32>).to_any();
+    assert!(({ (ptr).clone() } == { ((a1.as_pointer() as Ptr::<u32>) as Ptr::<u32>).to_any() }));
+    assert!(
+        ({ (elem!((ptr.reinterpret_cast::<u32>()), 0).read()) } == {
+            (*a1.borrow())[(0) as usize]
+        })
+    );
     return 0;
 }
 pub fn __cpp2rust_init_globals() {}

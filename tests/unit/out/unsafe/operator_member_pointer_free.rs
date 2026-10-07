@@ -7,23 +7,15 @@ use std::io::{Read, Seek, Write};
 use std::os::fd::{AsFd, FromRawFd, IntoRawFd};
 use std::rc::Rc;
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Inner {
     pub x: i32,
 }
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct S {
     pub data: [i32; 3],
     pub inner: Inner,
-}
-impl Default for S {
-    fn default() -> Self {
-        S {
-            data: [0_i32; 3],
-            inner: <Inner>::default(),
-        }
-    }
 }
 pub unsafe fn operator_deref_0(s: *mut S) -> *mut Inner {
     return &mut (*s).inner;

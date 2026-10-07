@@ -7,12 +7,12 @@ use std::io::{Read, Seek, Write};
 use std::os::fd::{AsFd, FromRawFd, IntoRawFd};
 use std::rc::Rc;
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Bar {
     pub w: i32,
 }
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Foo {
     pub x: i32,
     pub y: *mut i32,
@@ -20,19 +20,8 @@ pub struct Foo {
     pub a: [i32; 3],
     pub bar: Bar,
 }
-impl Default for Foo {
-    fn default() -> Self {
-        Foo {
-            x: 0_i32,
-            y: <*mut i32>::default(),
-            z: std::ptr::null_mut(),
-            a: [0_i32; 3],
-            bar: <Bar>::default(),
-        }
-    }
-}
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Refs {
     pub a: *mut i32,
     pub b: *mut i32,
@@ -211,7 +200,10 @@ unsafe fn main_0() -> i32 {
         0.into(),
     );
     let mut pair4: (Vec<i32>, i32) = pair3.clone();
-    pair4.0.push(1);
+    {
+        let __a1 = 1;
+        pair4.0.push(__a1)
+    };
     pair4.1 = 1;
     assert!(((pair4.0.len()) == (1_usize)));
     assert!(((pair4.1) == (1)));

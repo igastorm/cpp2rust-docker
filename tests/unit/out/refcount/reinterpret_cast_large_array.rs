@@ -11,34 +11,19 @@ pub fn main() {
     std::process::exit(main_0());
 }
 fn main_0() -> i32 {
-    let N: Value<i32> = Rc::new(RefCell::new(10000));
-    let arr: Value<Ptr<u32>> = Rc::new(RefCell::new(Ptr::alloc_array(
-        (0..((*N.borrow()) as usize))
-            .map(|_| 0_u32)
-            .collect::<Box<[u32]>>(),
-    )));
-    let i: Value<i32> = Rc::new(RefCell::new(0));
-    'loop_: while ((*i.borrow()) < (*N.borrow())) {
-        (*arr.borrow()).offset((*i.borrow()) as isize).write(0_u32);
-        (*i.borrow_mut()).postfix_inc();
+    let mut N: i32 = 10000;
+    let mut arr: Ptr<u32> =
+        Ptr::alloc_array((0..(N as usize)).map(|_| 0_u32).collect::<Box<[u32]>>());
+    let mut i: i32 = 0;
+    'loop_: while (i < N) {
+        elem!(arr, i).write(0_u32);
+        i.postfix_inc();
     }
-    (*arr.borrow())
-        .offset(((*N.borrow()) - 1) as isize)
-        .write(3148519816_u32);
-    let words: Value<Ptr<u16>> = Rc::new(RefCell::new((*arr.borrow()).reinterpret_cast::<u16>()));
-    assert!(
-        ((((*words.borrow())
-            .offset((((*N.borrow()) * 2) - 1) as isize)
-            .read()) as i32)
-            == 48042)
-    );
-    assert!(
-        ((((*words.borrow())
-            .offset((((*N.borrow()) * 2) - 2) as isize)
-            .read()) as i32)
-            == 39304)
-    );
-    (*arr.borrow()).delete();
+    elem!(arr, (N - 1)).write(3148519816_u32);
+    let mut words: Ptr<u16> = arr.reinterpret_cast::<u16>();
+    assert!((((elem!(words, ((N * 2) - 1)).read()) as i32) == 48042));
+    assert!((((elem!(words, ((N * 2) - 2)).read()) as i32) == 39304));
+    arr.delete();
     return 0;
 }
 pub fn __cpp2rust_init_globals() {}

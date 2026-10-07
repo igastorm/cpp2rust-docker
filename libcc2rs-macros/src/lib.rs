@@ -4,9 +4,14 @@
 use proc_macro::TokenStream;
 
 mod byte_repr;
+mod deep_clone;
+mod fn_ptr_arg;
 mod goto;
+mod lambda;
+mod record;
 mod state_machine;
 mod switch;
+mod va_arg;
 
 //     switch!(match <condition> {
 //         <pat> [if <guard>] => { /* body; may contain break or continue */ },
@@ -74,6 +79,16 @@ pub fn goto_block(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn lambda(input: TokenStream) -> TokenStream {
+    lambda::expand(input, false)
+}
+
+#[proc_macro]
+pub fn lambda_unsafe(input: TokenStream) -> TokenStream {
+    lambda::expand(input, true)
+}
+
+#[proc_macro]
 pub fn goto(_input: TokenStream) -> TokenStream {
     quote::quote! {
         compile_error!("goto!() can only be used inside goto_block!")
@@ -82,12 +97,64 @@ pub fn goto(_input: TokenStream) -> TokenStream {
 }
 
 //     #[derive(ByteRepr)]
-//     pub struct S;
+//     #[byte_size(16)]
+//     pub struct S {
+//         #[offset(0)]
+//         pub x: i32,
+//         #[offset(4)]
+//         #[byte_size(12)]
+//         pub a: Value<Box<[i32]>>,
+//         ...
+//     }
 //
-// Adds ByteRepr implementation for S. Currently only empty structs are handled. Non-empty structs
-// panic.
+// Implements libcc2rs::ByteRepr for S, laying out each field at the byte
+// offset given by its offset attribute (see derive(Record)). The byte_size
+// attribute gives the byte size of S in C, and of the fields whose size in C
+// differs from the byte_size() of their type (e.g., arrays and pointers).
 
-#[proc_macro_derive(ByteRepr)]
+#[proc_macro_derive(ByteRepr, attributes(offset, byte_size))]
 pub fn derive_byte_repr(input: TokenStream) -> TokenStream {
     byte_repr::expand(input)
+}
+
+#[proc_macro_derive(VaArg)]
+pub fn derive_va_arg(input: TokenStream) -> TokenStream {
+    va_arg::expand(input)
+}
+
+#[proc_macro_derive(FnPtrArg)]
+pub fn derive_fn_ptr_arg(input: TokenStream) -> TokenStream {
+    fn_ptr_arg::expand(input)
+}
+
+//     #[derive(Record)]
+//     pub struct S {
+//         #[offset(0)]
+//         pub x: i32,
+//         ...
+//     }
+//
+// Implements libcc2rs::Record for S, which lets pointers to the fields of S
+// be created by field_ptr!. The argument of the offset attribute is the byte
+// offset of the field in the C layout of S, as a constant expression (e.g.,
+// `offset_of!(libc::stat, st_size)`).
+
+#[proc_macro_derive(Record, attributes(offset))]
+pub fn derive_record(input: TokenStream) -> TokenStream {
+    record::expand(input)
+}
+
+//     #[derive(DeepClone)]
+//     pub struct S {
+//         pub x: Value<T>,
+//         pub y: U,
+//     }
+//
+// Implements Clone for S, copying the Value fields with
+// libcc2rs::DeepClone, such that the copy of S doesn't share them with S,
+// and the other fields with Clone.
+
+#[proc_macro_derive(DeepClone)]
+pub fn derive_deep_clone(input: TokenStream) -> TokenStream {
+    deep_clone::expand(input)
 }

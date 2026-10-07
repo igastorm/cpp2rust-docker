@@ -6,20 +6,12 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-#[derive()]
+#[derive(DeepClone, Record, ByteRepr, VaArg, FnPtrArg)]
+#[byte_size(24)]
 pub struct StackArray {
+    #[offset(0)]
+    #[byte_size(24)]
     pub arr: Value<Box<[Ptr<i32>]>>,
-}
-impl Clone for StackArray {
-    fn clone(&self) -> Self {
-        let __this: Value<StackArray> = Rc::new(RefCell::new(Self {
-            arr: Rc::new(RefCell::new(Box::new(std::array::from_fn::<_, 3, _>(
-                |__i: usize| ((*self.arr.borrow())[(__i) as usize]).clone(),
-            )))),
-        }));
-        let this: Ptr<StackArray> = __this.as_pointer();
-        Rc::try_unwrap(__this).ok().unwrap().into_inner()
-    }
 }
 impl Default for StackArray {
     fn default() -> Self {
@@ -32,27 +24,14 @@ impl Default for StackArray {
         }
     }
 }
-impl ByteRepr for StackArray {
-    fn byte_size() -> usize {
-        24
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        (*self.arr.borrow()).to_bytes(&mut buf[0..24]);
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        Self {
-            arr: Rc::new(RefCell::new(<Box<[Ptr<i32>]>>::from_bytes(&buf[0..24]))),
-        }
-    }
-}
 pub fn IncrementAll_0(s: Ptr<StackArray>) {
-    let i: Value<i32> = Rc::new(RefCell::new(0));
-    'loop_: while ((*i.borrow()) < 3) {
+    let mut i: i32 = 0;
+    'loop_: while (i < 3) {
         {
-            let _ptr = (*(*s.upgrade().deref()).arr.borrow())[(*i.borrow()) as usize].clone();
-            _ptr.write(_ptr.read() + 1)
+            (elem!((array_field_ptr!(s, arr) as Ptr<Ptr::<i32>>), i).read())
+                .with_mut(|__v| *__v = *__v + 1)
         };
-        (*i.borrow_mut()).prefix_inc();
+        i.prefix_inc();
     }
 }
 pub fn main() {

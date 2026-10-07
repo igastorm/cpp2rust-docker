@@ -7,7 +7,7 @@ use std::io::{Read, Seek, Write};
 use std::os::fd::{AsFd, FromRawFd, IntoRawFd};
 use std::rc::Rc;
 #[repr(C)]
-#[derive(Clone, Default)]
+#[derive(Clone, VaArg, FnPtrArg, Default)]
 pub struct S {
     pub v: Vec<i32>,
     pub a: i32,
@@ -20,7 +20,10 @@ pub fn main() {
 }
 unsafe fn main_0() -> i32 {
     let mut s: S = <S>::default();
-    s.v.push(1);
+    {
+        let __a1 = 1;
+        s.v.push(__a1)
+    };
     'loop_: for e in 0..(s.v.len()) {
         let mut e = s.v[e].clone();
         s.a.postfix_inc();

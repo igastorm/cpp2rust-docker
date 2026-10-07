@@ -11,7 +11,7 @@ pub const Width_enum_W_64: Width_enum = 0;
 pub const Width_enum_W_32: Width_enum = 1;
 pub const Width_enum_W_16: Width_enum = 2;
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, FnPtrArg)]
 pub union anon_0 {
     pub text: *const libc::c_char,
     pub handle: *mut ::libc::c_void,
@@ -24,15 +24,14 @@ impl Default for anon_0 {
     }
 }
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Sink {
     pub width: Width_enum,
     pub out: anon_0,
 }
 pub unsafe fn write_count_1(mut s: *mut Sink, mut count: i64) {
     'switch: {
-        let __match_cond = ((*s).width as u32);
-        match __match_cond {
+        match { ((*s).width as u32) } {
             __v if __v == ((Width_enum_W_64 as i32) as u32) => {
                 (*((*s).out.handle as *mut i64)) = count;
                 break 'switch;

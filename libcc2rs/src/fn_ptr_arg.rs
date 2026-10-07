@@ -4,18 +4,21 @@
 // Support for FnPtr::cast synthesizing a call-through adapter automatically,
 // for any function pointer types T -> U.
 
+use std::any::Any;
+
 use crate::rc::Ptr;
 use crate::reinterpret::ByteRepr;
 use crate::void::{AnyPtr, ErasedPtr};
 
 // A type-erased view of one argument or return value, used only transiently
 // (within a single adapted call) and never allocated.
-pub(crate) enum ArgRepr<'a> {
+pub enum ArgRepr<'a> {
     Bytes([u8; 16], usize),
     Ptr(&'a dyn ErasedPtr),
+    Record(&'a dyn Any),
 }
 
-pub(crate) trait FnPtrArg: 'static {
+pub trait FnPtrArg: 'static {
     fn to_repr(&self) -> ArgRepr<'_>;
     // Panics if `r` describes a value that isn't a meaningful `Self` (wrong
     // kind, or same kind but incompatible size).
@@ -105,7 +108,9 @@ impl<T: ByteRepr> FnPtrArg for Ptr<T> {
                 Some(exact) => exact.clone(),
                 None => e.as_bytes().reinterpret_cast(),
             },
-            ArgRepr::Bytes(..) => panic!("ub: calling through incompatible fn pointer type"),
+            ArgRepr::Bytes(..) | ArgRepr::Record(_) => {
+                panic!("ub: calling through incompatible fn pointer type")
+            }
         }
     }
 }
@@ -118,8 +123,63 @@ impl FnPtrArg for AnyPtr {
     fn from_repr(r: &ArgRepr) -> Self {
         match r {
             ArgRepr::Ptr(e) => e.as_bytes().to_any(),
-            ArgRepr::Bytes(..) => panic!("ub: calling through incompatible fn pointer type"),
+            ArgRepr::Bytes(..) | ArgRepr::Record(_) => {
+                panic!("ub: calling through incompatible fn pointer type")
+            }
         }
+    }
+}
+
+impl<T: ?Sized + 'static> FnPtrArg for *mut T {
+    #[inline]
+    fn to_repr(&self) -> ArgRepr<'_> {
+        ArgRepr::Record(self)
+    }
+    fn from_repr(r: &ArgRepr) -> Self {
+        record_from_repr(r)
+    }
+}
+
+impl<T: ?Sized + 'static> FnPtrArg for *const T {
+    #[inline]
+    fn to_repr(&self) -> ArgRepr<'_> {
+        ArgRepr::Record(self)
+    }
+    fn from_repr(r: &ArgRepr) -> Self {
+        record_from_repr(r)
+    }
+}
+
+macro_rules! impl_fn_ptr_arg_unsafe_fn {
+    () => {
+        impl_fn_ptr_arg_unsafe_fn!(@gen A B C D E F G H I J K L M N O P);
+    };
+    (@gen $($a:ident)*) => {
+        impl<R: 'static $(, $a: 'static)*> FnPtrArg for Option<unsafe fn($($a,)*) -> R> {
+            #[inline]
+            fn to_repr(&self) -> ArgRepr<'_> {
+                ArgRepr::Record(self)
+            }
+            fn from_repr(r: &ArgRepr) -> Self {
+                record_from_repr(r)
+            }
+        }
+        impl_fn_ptr_arg_unsafe_fn!(@peel $($a)*);
+    };
+    (@peel) => {};
+    (@peel $head:ident $($tail:ident)*) => {
+        impl_fn_ptr_arg_unsafe_fn!(@gen $($tail)*);
+    };
+}
+impl_fn_ptr_arg_unsafe_fn!();
+
+pub fn record_from_repr<T: Any + Clone>(r: &ArgRepr) -> T {
+    match r {
+        ArgRepr::Record(v) => v
+            .downcast_ref::<T>()
+            .expect("ub: calling through incompatible fn pointer type")
+            .clone(),
+        _ => panic!("ub: calling through incompatible fn pointer type"),
     }
 }
 
@@ -161,7 +221,7 @@ impl<'a> ArgList<'a> {
     }
 }
 
-pub(crate) trait FnPtrArgs: Sized {
+pub(crate) trait FnPtrArgs: Sized + 'static {
     fn to_list(&self) -> ArgList<'_>;
     fn from_list(l: &ArgList) -> Self;
 }

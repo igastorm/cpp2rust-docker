@@ -1,13 +1,27 @@
 // Copyright (c) 2022-present INESC-ID.
 // Distributed under the MIT license that can be found in the LICENSE file.
 
+extern crate self as libcc2rs;
+
 mod reinterpret;
 pub use reinterpret::ByteRepr;
 
 mod rc;
 pub use rc::*;
 
+mod field;
+pub use field::{ElemPlace, FieldPlace, FieldPtr, Place, Record};
+// Used by #[derive(Record)] and size_of_field!.
+#[doc(hidden)]
+pub mod __field {
+    pub use crate::field::{
+        Locate, LocateLeaf, LocateLeafMut, LocateMut, LocateRecord, LocateRecordMut,
+        size_of_pointee,
+    };
+}
+
 mod cstr;
+pub use cstr::CChar;
 
 mod void;
 pub use void::*;
@@ -18,6 +32,7 @@ pub use ptr_dyn::*;
 include!(concat!(env!("OUT_DIR"), "/rule_shims.rs"));
 
 mod fn_ptr_arg;
+pub use fn_ptr_arg::{ArgRepr, FnPtrArg, record_from_repr};
 
 mod fn_ptr;
 pub use fn_ptr::FnPtr;
@@ -55,4 +70,6 @@ pub use fd::*;
 mod format;
 pub use format::*;
 
-pub use libcc2rs_macros::{ByteRepr, goto, goto_block, switch};
+pub use libcc2rs_macros::{
+    ByteRepr, DeepClone, FnPtrArg, Record, VaArg, goto, goto_block, lambda, lambda_unsafe, switch,
+};

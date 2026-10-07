@@ -7,12 +7,12 @@ use std::io::{Read, Seek, Write};
 use std::os::fd::{AsFd, FromRawFd, IntoRawFd};
 use std::rc::Rc;
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Inner {
     pub x: i32,
 }
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, VaArg, FnPtrArg, Default)]
 pub struct Explicit {
     pub v: i32,
     pub inner: Inner,
@@ -29,33 +29,15 @@ impl Explicit {
     }
     pub unsafe fn destructor(&mut self) {}
 }
-impl Default for Explicit {
-    fn default() -> Self {
-        Explicit {
-            v: 0_i32,
-            inner: <Inner>::default(),
-            arr: [0_i32; 2],
-        }
-    }
-}
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Implicit {
     pub v: i32,
     pub inner: Inner,
     pub arr: [i32; 2],
 }
-impl Default for Implicit {
-    fn default() -> Self {
-        Implicit {
-            v: 0_i32,
-            inner: <Inner>::default(),
-            arr: [0_i32; 2],
-        }
-    }
-}
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct DefaultCopyUserMove {
     pub v: i32,
 }
@@ -76,7 +58,7 @@ impl DefaultCopyUserMove {
     }
 }
 #[repr(C)]
-#[derive(Default)]
+#[derive(VaArg, FnPtrArg, Default)]
 pub struct UserCopyDefaultMove {
     pub v: i32,
 }
@@ -116,7 +98,7 @@ impl Clone for UserCopyDefaultMove {
     }
 }
 #[repr(C)]
-#[derive()]
+#[derive(Default)]
 pub struct Buffer {
     pub data: Vec<i32>,
     pub rows: Vec<Vec<i32>>,
@@ -160,18 +142,8 @@ impl Buffer {
         return &mut (*(self as *mut Buffer));
     }
 }
-impl Default for Buffer {
-    fn default() -> Self {
-        Buffer {
-            data: Default::default(),
-            rows: Vec::new(),
-            n: 0_i32,
-            arr: [0_i32; 2],
-        }
-    }
-}
 #[repr(C)]
-#[derive()]
+#[derive(Default)]
 pub struct Owner {
     pub data: Vec<i32>,
     pub n: i32,
@@ -203,16 +175,6 @@ impl Owner {
         };
         self.p = (*_a0).p.take();
         return &mut (*(self as *mut Owner));
-    }
-}
-impl Default for Owner {
-    fn default() -> Self {
-        Owner {
-            data: Default::default(),
-            n: 0_i32,
-            arr: [0_i32; 2],
-            p: None,
-        }
     }
 }
 #[repr(C)]
@@ -310,7 +272,10 @@ unsafe fn main_0() -> i32 {
         let a0_clone = b.clone();
         vec_.push(a0_clone)
     };
-    vec_.push(Explicit::new({ 9 }));
+    {
+        let __a1 = Explicit::new({ 9 });
+        vec_.push(__a1)
+    };
     assert!(((vec_[(0_usize)].v) == (1)) && ((vec_[(1_usize)].v) == (9)));
     let mut m: DefaultCopyUserMove = DefaultCopyUserMove::new({ 7 });
     let mut m1: DefaultCopyUserMove = m;
@@ -347,7 +312,10 @@ unsafe fn main_0() -> i32 {
             && (q.rows.is_empty())
     );
     let mut bufs: Vec<Buffer> = Vec::new();
-    bufs.push(Buffer::move_from({ &mut r }));
+    {
+        let __a1 = Buffer::move_from({ &mut r });
+        bufs.push(__a1)
+    };
     {
         let __init = Buffer::move_from({ &mut bufs[(0_usize)] });
         bufs.push(__init)
@@ -357,7 +325,10 @@ unsafe fn main_0() -> i32 {
             && (bufs[(0_usize)].data.is_empty())
     );
     let mut o1: Owner = <Owner>::default();
-    o1.data.push(5);
+    {
+        let __a1 = 5;
+        o1.data.push(__a1)
+    };
     o1.n = 5;
     o1.arr[(0) as usize] = 5;
     o1.arr[(1) as usize] = 6;

@@ -9,15 +9,14 @@ use std::rc::{Rc, Weak};
 thread_local!(
     pub static total_0: Value<i32> = Rc::new(RefCell::new(0));
 );
-#[derive(Clone, ByteRepr, Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(1)]
 pub struct S {}
 impl S {
-    pub fn new(x: i32) -> Self {
-        let x: Value<i32> = Rc::new(RefCell::new(x));
-        let __this: Value<S> = Rc::new(RefCell::new(Self {}));
-        let this: Ptr<S> = __this.as_pointer();
-        total_0.with(|rc| *rc.borrow_mut() += (*x.borrow()));
-        Rc::try_unwrap(__this).ok().unwrap().into_inner()
+    pub fn new(mut x: i32) -> Self {
+        let __this: S = Self {};
+        total_0.with(|rc| *rc.borrow_mut() += x);
+        __this
     }
 }
 thread_local!(

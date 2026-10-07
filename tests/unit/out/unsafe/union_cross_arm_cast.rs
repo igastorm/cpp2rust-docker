@@ -7,21 +7,13 @@ use std::io::{Read, Seek, Write};
 use std::os::fd::{AsFd, FromRawFd, IntoRawFd};
 use std::rc::Rc;
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct shape_a {
     pub code: u16,
     pub pad: [libc::c_char; 14],
 }
-impl Default for shape_a {
-    fn default() -> Self {
-        shape_a {
-            code: 0_u16,
-            pad: [(0 as libc::c_char); 14],
-        }
-    }
-}
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct shape_b {
     pub code: u16,
     pub lo: u16,
@@ -29,19 +21,8 @@ pub struct shape_b {
     pub fill: [u8; 16],
     pub tail: u32,
 }
-impl Default for shape_b {
-    fn default() -> Self {
-        shape_b {
-            code: 0_u16,
-            lo: 0_u16,
-            mid: 0_u32,
-            fill: [0_u8; 16],
-            tail: 0_u32,
-        }
-    }
-}
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, FnPtrArg)]
 pub union anon_0 {
     pub a: shape_a,
     pub b: shape_b,
@@ -53,7 +34,7 @@ impl Default for anon_0 {
     }
 }
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Container {
     pub len: u32,
     pub u: anon_0,

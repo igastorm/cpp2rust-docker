@@ -8,6 +8,9 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use crate::field::{Root, upgrade as upgrade_root};
+use crate::rc::Ptr;
+
 pub trait ByteRepr: 'static {
     fn byte_size() -> usize
     where
@@ -90,26 +93,66 @@ impl ByteRepr for () {}
 impl ByteRepr for std::fs::File {}
 impl<T: ByteRepr> ByteRepr for Vec<T> {}
 impl<T: ByteRepr> ByteRepr for Option<T> {}
-impl<T: ByteRepr> ByteRepr for std::rc::Rc<T> {}
-impl<T: ByteRepr> ByteRepr for std::cell::RefCell<T> {}
-impl<T: ByteRepr> ByteRepr for Box<[T]> {}
+// The bytes of a Value, like a field stored in one, are those of its value.
+impl<T: ByteRepr> ByteRepr for std::rc::Rc<T> {
+    #[inline]
+    fn byte_size() -> usize {
+        T::byte_size()
+    }
+    #[inline]
+    fn to_bytes(&self, buf: &mut [u8]) {
+        (**self).to_bytes(buf)
+    }
+    #[inline]
+    fn from_bytes(buf: &[u8]) -> Self {
+        Rc::new(T::from_bytes(buf))
+    }
+}
+impl<T: ByteRepr> ByteRepr for std::cell::RefCell<T> {
+    #[inline]
+    fn byte_size() -> usize {
+        T::byte_size()
+    }
+    #[inline]
+    fn to_bytes(&self, buf: &mut [u8]) {
+        self.borrow().to_bytes(buf)
+    }
+    #[inline]
+    fn from_bytes(buf: &[u8]) -> Self {
+        RefCell::new(T::from_bytes(buf))
+    }
+}
+impl<T: ByteRepr> ByteRepr for Box<[T]> {
+    fn to_bytes(&self, buf: &mut [u8]) {
+        let elem_size = T::byte_size();
+        for (i, elem) in self.iter().enumerate() {
+            elem.to_bytes(&mut buf[i * elem_size..(i + 1) * elem_size]);
+        }
+    }
+
+    fn from_bytes(buf: &[u8]) -> Self {
+        let elem_size = T::byte_size();
+        assert_eq!(buf.len() % elem_size, 0, "ub: partial array element");
+        buf.chunks(elem_size).map(T::from_bytes).collect()
+    }
+}
 impl<T: ByteRepr> ByteRepr for Box<T> {}
 impl<T: 'static> ByteRepr for *const T {}
 impl<T: 'static> ByteRepr for *mut T {}
 impl<A: ByteRepr, B: ByteRepr> ByteRepr for (A, B) {}
 impl<K: 'static, V: 'static> ByteRepr for std::collections::BTreeMap<K, V> {}
 
-// Runs `f` with a zeroed scratch buffer of `len` bytes. Small buffers live on
-// the stack so that accessing memory through a reinterpreted pointer does not
-// hit the allocator.
+// Runs `f` with a zeroed scratch buffer of `len` elements. Small buffers live
+// on the stack so that accessing memory through a reinterpreted pointer does
+// not hit the allocator.
 #[inline]
-pub(crate) fn with_scratch<R>(len: usize, f: impl FnOnce(&mut [u8]) -> R) -> R {
+pub(crate) fn with_scratch<T: Copy + Default, R>(len: usize, f: impl FnOnce(&mut [T]) -> R) -> R {
     const INLINE_LEN: usize = 64;
     if len <= INLINE_LEN {
-        let mut buf = [0u8; INLINE_LEN];
+        let mut buf = [T::default(); INLINE_LEN];
         f(&mut buf[..len])
     } else {
-        f(&mut vec![0u8; len])
+        f(&mut vec![T::default(); len])
     }
 }
 
@@ -127,61 +170,94 @@ pub(crate) trait AllocOps {
 // It is a plain weak reference plus a reference to the (stateless) operations
 // for the concrete storage type. Hence, it doesn't require any heap
 // allocation on its own.
+// The storage of a field of a struct is the field alone, as if it was a
+// separate allocation.
 #[derive(Clone)]
 pub struct OriginalAlloc {
-    weak: Weak<dyn Any>,
+    storage: Storage,
     ops: &'static dyn AllocOps,
+}
+
+#[derive(Clone)]
+enum Storage {
+    Alloc(Weak<dyn Any>),
+    Field(Weak<dyn Root>, usize),
+}
+
+// The storage passed to the AllocOps of a field.
+struct FieldStorage {
+    root: Rc<dyn Root>,
+    field: usize,
 }
 
 impl OriginalAlloc {
     pub(crate) fn single<T: ByteRepr>(weak: &Weak<RefCell<T>>) -> Self {
         Self {
-            weak: weak.clone(),
+            storage: Storage::Alloc(weak.clone()),
             ops: &SingleOps::<T>(PhantomData),
         }
     }
 
     pub(crate) fn slice<T: AsSlice>(weak: &Weak<RefCell<T>>) -> Self {
         Self {
-            weak: weak.clone(),
+            storage: Storage::Alloc(weak.clone()),
             ops: &SliceOps::<T>(PhantomData),
         }
     }
 
+    // The field of type T at byte offset `field` of `root`.
+    pub(crate) fn field<T: ByteRepr>(root: &Weak<dyn Root>, field: usize) -> Self {
+        Self {
+            storage: Storage::Field(root.clone(), field),
+            ops: &FieldOps::<T>(PhantomData),
+        }
+    }
+
     #[inline]
-    fn upgrade(&self) -> Rc<dyn Any> {
-        self.weak.upgrade().expect("ub: dangling pointer")
+    fn with_storage<R>(&self, f: impl FnOnce(&dyn Any) -> R) -> R {
+        match &self.storage {
+            Storage::Alloc(weak) => f(&*weak.upgrade().expect("ub: dangling pointer")),
+            Storage::Field(root, field) => f(&FieldStorage {
+                root: upgrade_root(root),
+                field: *field,
+            }),
+        }
     }
 
     #[inline]
     pub(crate) fn read_bytes(&self, byte_offset: usize, buf: &mut [u8]) {
-        let rc = self.upgrade();
-        self.ops.read_bytes(&*rc, byte_offset, buf);
+        self.with_storage(|storage| self.ops.read_bytes(storage, byte_offset, buf));
     }
 
     #[inline]
     pub(crate) fn write_bytes(&self, byte_offset: usize, data: &[u8]) {
-        let rc = self.upgrade();
-        self.ops.write_bytes(&*rc, byte_offset, data);
+        self.with_storage(|storage| self.ops.write_bytes(storage, byte_offset, data));
     }
 
     pub(crate) fn total_byte_len(&self) -> usize {
-        let rc = self.upgrade();
-        self.ops.total_byte_len(&*rc)
+        self.with_storage(|storage| self.ops.total_byte_len(storage))
     }
 
     // Stable address used for pointer equality across PtrKind variants.
     pub(crate) fn address(&self) -> usize {
-        self.weak.as_ptr() as *const () as usize
+        match &self.storage {
+            Storage::Alloc(weak) => weak.as_ptr() as *const () as usize,
+            Storage::Field(root, field) => {
+                (root.as_ptr() as *const () as usize).wrapping_add(*field)
+            }
+        }
     }
 
     pub(crate) fn delete(&self) {
-        assert_eq!(Weak::strong_count(&self.weak), 1, "ub: invalid delete");
+        let Storage::Alloc(weak) = &self.storage else {
+            panic!("ub: invalid delete");
+        };
+        assert_eq!(Weak::strong_count(weak), 1, "ub: invalid delete");
         unsafe {
-            let strong = self.upgrade();
+            let strong = weak.upgrade().expect("ub: dangling pointer");
             Rc::from_raw(Rc::as_ptr(&strong));
         }
-        assert_eq!(Weak::strong_count(&self.weak), 0, "ub: double free");
+        assert_eq!(Weak::strong_count(weak), 0, "ub: double free");
     }
 }
 
@@ -263,6 +339,9 @@ pub(crate) trait AsSlice: 'static {
     // the generic (de)serialization of the elements.
     fn as_u8_slice(&self) -> Option<&[u8]>;
     fn as_u8_slice_mut(&mut self) -> Option<&mut [u8]>;
+    // Likewise for `i8` (char), e.g., a std::string accessed as uint8_t*.
+    fn as_i8_slice(&self) -> Option<&[i8]>;
+    fn as_i8_slice_mut(&mut self) -> Option<&mut [i8]>;
 }
 
 impl<S: ByteRepr> AsSlice for Vec<S> {
@@ -279,6 +358,14 @@ impl<S: ByteRepr> AsSlice for Vec<S> {
     fn as_u8_slice_mut(&mut self) -> Option<&mut [u8]> {
         (self as &mut dyn Any)
             .downcast_mut::<Vec<u8>>()
+            .map(|v| &mut v[..])
+    }
+    fn as_i8_slice(&self) -> Option<&[i8]> {
+        (self as &dyn Any).downcast_ref::<Vec<i8>>().map(|v| &v[..])
+    }
+    fn as_i8_slice_mut(&mut self) -> Option<&mut [i8]> {
+        (self as &mut dyn Any)
+            .downcast_mut::<Vec<i8>>()
             .map(|v| &mut v[..])
     }
 }
@@ -301,6 +388,16 @@ impl<S: ByteRepr> AsSlice for Box<[S]> {
             .downcast_mut::<Box<[u8]>>()
             .map(|v| &mut v[..])
     }
+    fn as_i8_slice(&self) -> Option<&[i8]> {
+        (self as &dyn Any)
+            .downcast_ref::<Box<[i8]>>()
+            .map(|v| &v[..])
+    }
+    fn as_i8_slice_mut(&mut self) -> Option<&mut [i8]> {
+        (self as &mut dyn Any)
+            .downcast_mut::<Box<[i8]>>()
+            .map(|v| &mut v[..])
+    }
 }
 
 struct SliceOps<T>(PhantomData<fn() -> T>);
@@ -309,23 +406,57 @@ impl<T: AsSlice> AllocOps for SliceOps<T> {
     fn read_bytes(&self, cell: &dyn Any, byte_offset: usize, buf: &mut [u8]) {
         let cell = cell.downcast_ref::<RefCell<T>>().unwrap();
         let val = cell.borrow();
-        match val.as_u8_slice() {
-            Some(bytes) => buf.copy_from_slice(&bytes[byte_offset..byte_offset + buf.len()]),
-            None => slice_read_bytes(val.as_slice(), byte_offset, buf),
+        if let Some(bytes) = val.as_u8_slice() {
+            buf.copy_from_slice(&bytes[byte_offset..byte_offset + buf.len()]);
+        } else if let Some(chars) = val.as_i8_slice() {
+            let chars = &chars[byte_offset..byte_offset + buf.len()];
+            for (b, &c) in buf.iter_mut().zip(chars) {
+                *b = c as u8;
+            }
+        } else {
+            slice_read_bytes(val.as_slice(), byte_offset, buf);
         }
     }
 
     fn write_bytes(&self, cell: &dyn Any, byte_offset: usize, data: &[u8]) {
         let cell = cell.downcast_ref::<RefCell<T>>().unwrap();
         let mut val = cell.borrow_mut();
-        match val.as_u8_slice_mut() {
-            Some(bytes) => bytes[byte_offset..byte_offset + data.len()].copy_from_slice(data),
-            None => slice_write_bytes(val.as_slice_mut(), byte_offset, data),
+        if let Some(bytes) = val.as_u8_slice_mut() {
+            bytes[byte_offset..byte_offset + data.len()].copy_from_slice(data);
+            return;
         }
+        if let Some(chars) = val.as_i8_slice_mut() {
+            let chars = &mut chars[byte_offset..byte_offset + data.len()];
+            for (c, &b) in chars.iter_mut().zip(data) {
+                *c = b as i8;
+            }
+            return;
+        }
+        slice_write_bytes(val.as_slice_mut(), byte_offset, data);
     }
 
     fn total_byte_len(&self, cell: &dyn Any) -> usize {
         let cell = cell.downcast_ref::<RefCell<T>>().unwrap();
         cell.borrow().as_slice().len() * <T::Elem as ByteRepr>::byte_size()
+    }
+}
+
+struct FieldOps<T>(PhantomData<fn() -> T>);
+
+impl<T: ByteRepr> AllocOps for FieldOps<T> {
+    fn read_bytes(&self, storage: &dyn Any, byte_offset: usize, buf: &mut [u8]) {
+        let storage = storage.downcast_ref::<FieldStorage>().unwrap();
+        let field = Ptr::<T>::borrow_field(&*storage.root, storage.field);
+        slice_read_bytes(std::slice::from_ref(&*field), byte_offset, buf);
+    }
+
+    fn write_bytes(&self, storage: &dyn Any, byte_offset: usize, data: &[u8]) {
+        let storage = storage.downcast_ref::<FieldStorage>().unwrap();
+        let mut field = Ptr::<T>::borrow_field_mut(&*storage.root, storage.field);
+        slice_write_bytes(std::slice::from_mut(&mut *field), byte_offset, data);
+    }
+
+    fn total_byte_len(&self, _storage: &dyn Any) -> usize {
+        T::byte_size()
     }
 }

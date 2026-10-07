@@ -6,31 +6,11 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-#[derive(Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(4)]
 pub struct X {
-    pub x: Value<i32>,
-}
-impl Clone for X {
-    fn clone(&self) -> Self {
-        let __this: Value<X> = Rc::new(RefCell::new(Self {
-            x: Rc::new(RefCell::new((*self.x.borrow()))),
-        }));
-        let this: Ptr<X> = __this.as_pointer();
-        Rc::try_unwrap(__this).ok().unwrap().into_inner()
-    }
-}
-impl ByteRepr for X {
-    fn byte_size() -> usize {
-        4
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        (*self.x.borrow()).to_bytes(&mut buf[0..4]);
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        Self {
-            x: Rc::new(RefCell::new(<i32>::from_bytes(&buf[0..4]))),
-        }
-    }
+    #[offset(0)]
+    pub x: i32,
 }
 pub fn func_0() -> i32 {
     return 42;
@@ -41,20 +21,20 @@ pub fn main() {
 }
 fn main_0() -> i32 {
     let x: Value<i32> = Rc::new(RefCell::new(0_i32));
-    let p: Value<Ptr<i32>> = Rc::new(RefCell::new(Ptr::<i32>::null()));
+    let mut p: Ptr<i32> = Ptr::<i32>::null();
     let g: Ptr<i32> = x.as_pointer();
-    let q: Value<Ptr<i32>> = Rc::new(RefCell::new((x.as_pointer())));
-    let z: Value<Ptr<i32>> = Rc::new(RefCell::new((*p.borrow()).clone()));
+    let mut q: Ptr<i32> = (x.as_pointer());
+    let mut z: Ptr<i32> = (p).clone();
     let xx: Value<X> = Rc::new(RefCell::new(<X>::default()));
-    let zz: Value<Ptr<X>> = Rc::new(RefCell::new((xx.as_pointer())));
-    (*(*xx.borrow()).x.borrow_mut()) = 1;
-    (*q.borrow_mut()) = ((*xx.borrow()).x.as_pointer());
-    (*q.borrow_mut()) = ((*(*zz.borrow()).upgrade().deref()).x.as_pointer());
-    (*(*(*zz.borrow()).upgrade().deref()).x.borrow_mut()) = 2;
-    let ww: Value<X> = Rc::new(RefCell::new((*xx.borrow()).clone()));
-    (*ww.borrow_mut()) = (*xx.borrow()).clone();
-    let aa: Value<i32> = Rc::new(RefCell::new(({ func_0() })));
-    (*aa.borrow_mut()) = ({ func_0() });
+    let mut zz: Ptr<X> = (xx.as_pointer());
+    (*xx.borrow_mut()).x = 1;
+    q = (field_ptr!(xx.as_pointer(), x));
+    q = (field_ptr!(zz, x));
+    field!(zz, x).write(2);
+    let mut ww: X = (*xx.borrow()).clone();
+    ww = (*xx.borrow()).clone();
+    let mut aa: i32 = ({ func_0() });
+    aa = ({ func_0() });
     return 0;
 }
 pub fn __cpp2rust_init_globals() {}

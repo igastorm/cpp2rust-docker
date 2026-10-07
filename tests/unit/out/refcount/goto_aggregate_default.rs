@@ -6,59 +6,34 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-#[derive(Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(8)]
 pub struct Point {
-    pub x: Value<i32>,
-    pub y: Value<i32>,
+    #[offset(0)]
+    pub x: i32,
+    #[offset(4)]
+    pub y: i32,
 }
-impl Clone for Point {
-    fn clone(&self) -> Self {
-        Self {
-            x: Rc::new(RefCell::new((*self.x.borrow()).clone())),
-            y: Rc::new(RefCell::new((*self.y.borrow()).clone())),
-        }
-    }
-}
-impl ByteRepr for Point {
-    fn byte_size() -> usize {
-        8
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        (*self.x.borrow()).to_bytes(&mut buf[0..4]);
-        (*self.y.borrow()).to_bytes(&mut buf[4..8]);
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        Self {
-            x: Rc::new(RefCell::new(<i32>::from_bytes(&buf[0..4]))),
-            y: Rc::new(RefCell::new(<i32>::from_bytes(&buf[4..8]))),
-        }
-    }
-}
-pub fn agg_0(n: i32) -> i32 {
-    let n: Value<i32> = Rc::new(RefCell::new(n));
-    let buf40: Value<Box<[u8]>> =
-        Rc::new(RefCell::new((0..40).map(|_| 0_u8).collect::<Box<[u8]>>()));
-    let buf256: Value<Box<[u8]>> =
-        Rc::new(RefCell::new((0..256).map(|_| 0_u8).collect::<Box<[u8]>>()));
-    let arr64: Value<Box<[i32]>> =
-        Rc::new(RefCell::new((0..64).map(|_| 0_i32).collect::<Box<[i32]>>()));
-    let longs: Value<Box<[i64]>> =
-        Rc::new(RefCell::new((0..33).map(|_| 0_i64).collect::<Box<[i64]>>()));
-    let p: Value<Point> = <Value<Point>>::default();
-    let ptr: Value<Ptr<i32>> = Rc::new(RefCell::new(Ptr::<i32>::null()));
-    let fp: Value<FnPtr<fn(i32) -> i32>> = Rc::new(RefCell::new(FnPtr::<fn(i32) -> i32>::null()));
-    let file: Value<Ptr<CFile>> = Rc::new(RefCell::new(Ptr::null()));
-    let total: Value<i32> = Rc::new(RefCell::new(0_i32));
+pub fn agg_0(mut n: i32) -> i32 {
+    let mut buf40: [i8; 40] = [0_i8; 40];
+    let mut buf256: [u8; 256] = [0_u8; 256];
+    let mut arr64: [i32; 64] = [0_i32; 64];
+    let mut longs: [i64; 33] = [0_i64; 33];
+    let mut p: Point = <Point>::default();
+    let mut ptr: Ptr<i32> = Ptr::<i32>::null();
+    let mut fp: FnPtr<fn(i32) -> i32> = FnPtr::<fn(i32) -> i32>::null();
+    let mut file: Ptr<CFile> = Ptr::null();
+    let mut total: i32 = 0_i32;
     goto_block!({
         '__entry: {
-            *total.borrow_mut() = 0;
-            if ((((*n.borrow()) < 0) as i32) != 0) {
+            total = 0;
+            if (((n < 0) as i32) != 0) {
                 goto!('out);
             }
-            (*total.borrow_mut()) = 1;
+            total = 1;
         }
         'out: {
-            return (*total.borrow());
+            return total;
         }
     });
     panic!("ub: non-void function does not return a value")

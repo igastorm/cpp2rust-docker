@@ -6,90 +6,51 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-#[derive()]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(24)]
 pub struct Vtable {
-    pub create: Value<FnPtr<fn(i32) -> AnyPtr>>,
-    pub get: Value<FnPtr<fn(AnyPtr) -> i32>>,
-    pub destroy: Value<FnPtr<fn(AnyPtr)>>,
-}
-impl Clone for Vtable {
-    fn clone(&self) -> Self {
-        let __this: Value<Vtable> = Rc::new(RefCell::new(Self {
-            create: Rc::new(RefCell::new((*self.create.borrow()).clone())),
-            get: Rc::new(RefCell::new((*self.get.borrow()).clone())),
-            destroy: Rc::new(RefCell::new((*self.destroy.borrow()).clone())),
-        }));
-        let this: Ptr<Vtable> = __this.as_pointer();
-        Rc::try_unwrap(__this).ok().unwrap().into_inner()
-    }
-}
-impl Default for Vtable {
-    fn default() -> Self {
-        Vtable {
-            create: Rc::new(RefCell::new(FnPtr::<fn(i32) -> AnyPtr>::null())),
-            get: Rc::new(RefCell::new(FnPtr::<fn(AnyPtr) -> i32>::null())),
-            destroy: Rc::new(RefCell::new(FnPtr::<fn(AnyPtr)>::null())),
-        }
-    }
-}
-impl ByteRepr for Vtable {
-    fn byte_size() -> usize {
-        24
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        (*self.create.borrow()).to_bytes(&mut buf[0..8]);
-        (*self.get.borrow()).to_bytes(&mut buf[8..16]);
-        (*self.destroy.borrow()).to_bytes(&mut buf[16..24]);
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        Self {
-            create: Rc::new(RefCell::new(<FnPtr<fn(i32) -> AnyPtr>>::from_bytes(
-                &buf[0..8],
-            ))),
-            get: Rc::new(RefCell::new(<FnPtr<fn(AnyPtr) -> i32>>::from_bytes(
-                &buf[8..16],
-            ))),
-            destroy: Rc::new(RefCell::new(<FnPtr<fn(AnyPtr)>>::from_bytes(&buf[16..24]))),
-        }
-    }
+    #[offset(0)]
+    #[byte_size(8)]
+    pub create: FnPtr<fn(i32) -> AnyPtr>,
+    #[offset(8)]
+    #[byte_size(8)]
+    pub get: FnPtr<fn(AnyPtr) -> i32>,
+    #[offset(16)]
+    #[byte_size(8)]
+    pub destroy: FnPtr<fn(AnyPtr)>,
 }
 thread_local!(
     pub static storage_0: Value<i32> = Rc::new(RefCell::new(0_i32));
 );
-pub fn int_create_1(val: i32) -> AnyPtr {
-    let val: Value<i32> = Rc::new(RefCell::new(val));
-    storage_0.with(|rc| *rc.borrow_mut() = (*val.borrow()));
+pub fn int_create_1(mut val: i32) -> AnyPtr {
+    storage_0.with(|rc| *rc.borrow_mut() = val);
     return ((storage_0.with(|v| v.as_pointer())) as Ptr<i32>).to_any();
 }
-pub fn int_get_2(p: AnyPtr) -> i32 {
-    let p: Value<AnyPtr> = Rc::new(RefCell::new(p));
-    return ((*p.borrow()).reinterpret_cast::<i32>().read());
+pub fn int_get_2(mut p: AnyPtr) -> i32 {
+    return (p.reinterpret_cast::<i32>().read());
 }
-pub fn int_destroy_3(p: AnyPtr) {
-    let p: Value<AnyPtr> = Rc::new(RefCell::new(p));
-    (*p.borrow()).reinterpret_cast::<i32>().write(0);
+pub fn int_destroy_3(mut p: AnyPtr) {
+    p.reinterpret_cast::<i32>().write(0);
 }
 pub fn main() {
     __cpp2rust_init_globals();
     std::process::exit(main_0());
 }
 fn main_0() -> i32 {
-    let vt: Value<Vtable> = Rc::new(RefCell::new(Vtable {
-        create: Rc::new(RefCell::new(FnPtr::<fn(i32) -> AnyPtr>::new(int_create_1))),
-        get: Rc::new(RefCell::new(FnPtr::<fn(AnyPtr) -> i32>::new(int_get_2))),
-        destroy: Rc::new(RefCell::new(FnPtr::<fn(AnyPtr)>::new(int_destroy_3))),
-    }));
-    assert!(!((*(*vt.borrow()).create.borrow()).is_null()));
-    assert!(!((*(*vt.borrow()).get.borrow()).is_null()));
-    assert!(!((*(*vt.borrow()).destroy.borrow()).is_null()));
-    let obj: Value<AnyPtr> = Rc::new(RefCell::new(
-        ({ (*(*vt.borrow()).create.borrow()).call(42) }),
-    ));
-    assert!((({ (*(*vt.borrow()).get.borrow()).call((*obj.borrow()).clone(),) }) == 42));
-    ({ (*(*vt.borrow()).destroy.borrow()).call((*obj.borrow()).clone()) });
+    let mut vt: Vtable = Vtable {
+        create: FnPtr::<fn(i32) -> AnyPtr>::new(int_create_1),
+        get: FnPtr::<fn(AnyPtr) -> i32>::new(int_get_2),
+        destroy: FnPtr::<fn(AnyPtr)>::new(int_destroy_3),
+    };
+    assert!(!((vt.create).is_null()));
+    assert!(!((vt.get).is_null()));
+    assert!(!((vt.destroy).is_null()));
+    let mut obj: AnyPtr = ({ vt.create.call(42) });
+    assert!((({ vt.get.call((obj).clone(),) }) == 42));
+    ({ vt.destroy.call((obj).clone()) });
     assert!((storage_0.with(|rc| *rc.borrow()) == 0));
-    (*(*vt.borrow()).get.borrow_mut()) = FnPtr::<fn(AnyPtr) -> i32>::null();
-    assert!((*(*vt.borrow()).get.borrow()).is_null());
+    vt.get = FnPtr::<fn(AnyPtr) -> i32>::null();
+    assert!((vt.get).is_null());
     return 0;
 }
 pub fn __cpp2rust_init_globals() {

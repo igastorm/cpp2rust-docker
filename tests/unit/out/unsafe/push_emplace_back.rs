@@ -7,18 +7,18 @@ use std::io::{Read, Seek, Write};
 use std::os::fd::{AsFd, FromRawFd, IntoRawFd};
 use std::rc::Rc;
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Chunk {
     pub data: i32,
 }
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, VaArg, FnPtrArg, Default)]
 pub struct Writer {
     pub output: *mut Vec<Chunk>,
     pub chunk: Chunk,
 }
 #[repr(C)]
-#[derive(Clone, Default)]
+#[derive(Clone, VaArg, FnPtrArg, Default)]
 pub struct JPEGData {
     pub com_data: Vec<Vec<u8>>,
     pub app_data: Vec<Vec<u8>>,
@@ -48,7 +48,10 @@ pub unsafe fn shrink_through_ptr_2(mut comps: *mut Vec<Chunk>) {
     (*comps).shrink_to_fit();
 }
 pub unsafe fn nested_push_move_3(mut bw: *mut Writer) {
-    (*(*bw).output).push((*bw).chunk);
+    {
+        let __a1 = (*bw).chunk;
+        (*(*bw).output).push(__a1)
+    };
 }
 pub unsafe fn emplace_local_from_field_4(mut jpg: *mut JPEGData, mut cond: bool) {
     let mut head: [u8; 3] = [1_u8, 2_u8, 3_u8];
@@ -82,7 +85,7 @@ pub unsafe fn self_ref_push_6(mut comps: *mut Vec<Chunk>) {
     };
 }
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, VaArg, FnPtrArg)]
 pub struct Pair {
     pub first: i32,
     pub second: i32,

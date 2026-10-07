@@ -9,14 +9,16 @@ use std::rc::{Rc, Weak};
 thread_local!(
     static inner_const_0: Value<i32> = Rc::new(RefCell::new(1));
 );
-#[derive(Clone, ByteRepr, Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(1)]
 pub struct C {}
 thread_local!(
     pub static inner_const_1: Value<i32> = Rc::new(RefCell::new(2));
 );
 pub type anon_3 = u32;
 pub const anon_3_kValue: anon_3 = 3;
-#[derive(Clone, ByteRepr, Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(1)]
 pub struct S {}
 impl S {
     pub fn f() -> i32 {
@@ -35,7 +37,7 @@ fn main_0() -> i32 {
     assert!((({ CImpl::get(&c.as_pointer(),) }) == 1));
     assert!((inner_const_1.with(|rc| *rc.borrow()) == 2));
     let s: Value<S> = Rc::new(RefCell::new(<S>::default()));
-    let p: Value<Ptr<S>> = Rc::new(RefCell::new((s.as_pointer())));
+    let mut p: Ptr<S> = (s.as_pointer());
     assert!((inner_const_1.with(|rc| *rc.borrow()) == 2));
     assert!((inner_const_1.with(|rc| *rc.borrow()) == 2));
     assert!(((anon_3_kValue as i32) == 3));

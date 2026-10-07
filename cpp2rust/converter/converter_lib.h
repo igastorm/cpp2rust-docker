@@ -9,6 +9,7 @@
 #include <clang/AST/Expr.h>
 #include <clang/AST/StmtCXX.h>
 #include <clang/AST/Type.h>
+#include <llvm/ADT/APSInt.h>
 #include <llvm/ADT/STLFunctionalExtras.h>
 
 #include <optional>
@@ -35,7 +36,7 @@ enum class IteratorCategory {
 };
 
 std::optional<IteratorCategory>
-GetStrongestIteratorCategory(clang::QualType type);
+GetStrongestIteratorCategory(clang::ASTContext &ctx, clang::QualType type);
 bool IsBuiltinConstantP(const clang::Expr *expr);
 
 bool IsGlobalVar(const clang::VarDecl *decl);
@@ -65,9 +66,12 @@ bool RefersToUserDefinedDecl(const clang::Expr *expr);
 
 bool IsUnsignedArithOp(const clang::BinaryOperator *expr);
 
-bool IsMut(clang::QualType qual_type);
+llvm::APSInt GetIntegerLiteralValue(const clang::ASTContext &ctx,
+                                    const clang::IntegerLiteral *expr,
+                                    const clang::QualType *type,
+                                    bool char_is_signed);
 
-bool TypeImplementsByteRepr(clang::QualType qt);
+bool IsMut(clang::QualType qual_type);
 
 bool RustSizeDivergesFromC(clang::QualType qt);
 
@@ -80,6 +84,8 @@ void ForEachTemplateInstantiatedMethod(
     llvm::function_ref<void(clang::CXXMethodDecl *)> fn);
 
 bool IsOverloadedMethod(const clang::CXXMethodDecl *decl);
+
+unsigned GetMethodIndex(const clang::CXXMethodDecl *decl);
 
 const char *GetCopyOrMoveName(const clang::CXXMethodDecl *method);
 
@@ -106,8 +112,6 @@ bool HasCallableCopyConstructor(const clang::RecordDecl *decl);
 bool HasDefaultedCopyConstructor(const clang::RecordDecl *decl);
 
 bool RecordHasOnlyReferenceFields(const clang::RecordDecl *decl);
-
-bool RecordDerivesByteRepr(const clang::RecordDecl *decl);
 
 bool HasDefaultedCopyAssignment(const clang::RecordDecl *decl);
 
@@ -150,6 +154,9 @@ GetUserDefinedDefaultConstructor(const clang::CXXRecordDecl *decl);
 
 bool HasUsableDefaultArg(const clang::ParmVarDecl *param);
 
+const clang::MaterializeTemporaryExpr *
+GetDefaultArgTemporary(const clang::ParmVarDecl *param);
+
 std::string GetMainFileName(const clang::ASTContext &ctx);
 
 std::string GetFileName(const clang::Decl *decl);
@@ -166,6 +173,11 @@ std::string GetMethodID(const clang::CXXMethodDecl *decl);
 std::string GetNamedDeclAsString(const clang::NamedDecl *decl);
 
 std::string DisambiguateAnonymousTag(const clang::TagDecl *tag);
+
+clang::QualType GetTypeForDecl(clang::ASTContext &ctx,
+                               const clang::NamedDecl *decl);
+
+bool HasFunctionParameterPack(const clang::FunctionDecl *decl);
 
 const char *AccessSpecifierAsString(clang::AccessSpecifier spec);
 
@@ -188,6 +200,23 @@ std::string GetConversionName(const clang::CXXConversionDecl *decl,
 
 bool IsImplicitAssignmentCall(const clang::CallExpr *expr);
 bool IsUserOperatorCall(const clang::CXXOperatorCallExpr *expr);
+
+const clang::CXXRecordDecl *AsLambdaClass(clang::QualType type);
+
+const clang::CXXMethodDecl *AsLambdaOperatorCall(const clang::FunctionDecl *fn);
+
+const clang::LambdaCapture *AsLambdaCapture(const clang::FieldDecl *field);
+
+clang::Expr *AsLambdaUncapturedConstant(const clang::FunctionDecl *fn,
+                                        clang::DeclRefExpr *expr);
+
+const clang::FieldDecl *AsLambdaCaptureThis(const clang::FunctionDecl *fn);
+
+clang::QualType GetDeclRefType(const clang::FunctionDecl *fn,
+                               const clang::Expr *expr,
+                               const clang::ValueDecl *decl);
+
+bool HasStaticLocal(const clang::Stmt *stmt);
 
 bool IsSameTypeComparison(const clang::FunctionDecl *fn,
                           const clang::CXXRecordDecl *record);
@@ -239,6 +268,9 @@ GetAllVars(const clang::Stmt *stmt);
 
 bool ReferencesThis(const clang::Stmt *stmt);
 
+// Whether evaluating `stmt` reads a value from memory, e.g., a pointer.
+bool ReadsMemory(const clang::Stmt *stmt);
+
 bool MayCauseBorrowMutError(const clang::Expr *lhs, const clang::Expr *rhs);
 
 bool ArgsMayAlias(const clang::Expr *a, const clang::Expr *b);
@@ -270,16 +302,23 @@ std::string GetClassName(clang::QualType type);
 
 bool IsVaListType(clang::QualType type);
 
-bool NeedsImplicitScalarCast(clang::QualType from, clang::QualType to);
+bool NeedsImplicitScalarCast(clang::ASTContext &ctx, clang::QualType from,
+                             clang::QualType to);
 
-bool NeedsRefBindingTemp(const clang::Expr *arg, clang::QualType param_type);
+clang::QualType GetExprPointee(clang::ASTContext &ctx, const clang::Expr *from,
+                               clang::QualType to);
 
-bool IsSizeType(clang::QualType type);
+bool NeedsImplicitPointeeCast(clang::ASTContext &ctx, const clang::Expr *from,
+                              clang::QualType to);
 
-std::optional<clang::QualType>
-GetOperandImplicitConversionTarget(const clang::BinaryOperator *op,
-                                   const clang::Expr *operand,
-                                   const clang::Expr *sibling);
+bool NeedsRefBindingTemp(clang::ASTContext &ctx, const clang::Expr *arg,
+                         clang::QualType param_type);
+
+bool IsSizeType(clang::ASTContext &ctx, clang::QualType type);
+
+std::optional<clang::QualType> GetOperandImplicitConversionTarget(
+    clang::ASTContext &ctx, const clang::BinaryOperator *op,
+    const clang::Expr *operand, const clang::Expr *sibling);
 
 bool IsBuiltinVaStart(const clang::CallExpr *expr);
 

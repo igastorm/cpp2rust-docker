@@ -6,52 +6,59 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsFd;
 use std::rc::{Rc, Weak};
-#[derive(Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(8)]
 pub struct StructWithCtor {
-    x1_: Value<i32>,
-    x2_: Value<i32>,
+    #[offset(0)]
+    x1_: i32,
+    #[offset(4)]
+    x2_: i32,
 }
 impl StructWithCtor {
-    pub fn new(x1: i32, x2: i32) -> Self {
-        let x1: Value<i32> = Rc::new(RefCell::new(x1));
-        let x2: Value<i32> = Rc::new(RefCell::new(x2));
-        let __this: Value<StructWithCtor> = Rc::new(RefCell::new(Self {
-            x1_: Rc::new(RefCell::new((*x1.borrow()))),
-            x2_: Rc::new(RefCell::new((*x2.borrow()))),
-        }));
+    pub fn new(mut x1: i32, mut x2: i32) -> Self {
+        let __this: Value<StructWithCtor> = Rc::new(RefCell::new(Self { x1_: x1, x2_: x2 }));
         let this: Ptr<StructWithCtor> = __this.as_pointer();
-        (*(*this.upgrade().deref()).x1_.borrow_mut()).prefix_inc();
-        (*(*this.upgrade().deref()).x2_.borrow_mut()).prefix_dec();
+        field!(this, x1_).with_mut(|__v| __v.prefix_inc());
+        field!(this, x2_).with_mut(|__v| __v.prefix_dec());
         Rc::try_unwrap(__this).ok().unwrap().into_inner()
-    }
-}
-impl Clone for StructWithCtor {
-    fn clone(&self) -> Self {
-        let __this: Value<StructWithCtor> = Rc::new(RefCell::new(Self {
-            x1_: Rc::new(RefCell::new((*self.x1_.borrow()))),
-            x2_: Rc::new(RefCell::new((*self.x2_.borrow()))),
-        }));
-        let this: Ptr<StructWithCtor> = __this.as_pointer();
-        Rc::try_unwrap(__this).ok().unwrap().into_inner()
-    }
-}
-impl ByteRepr for StructWithCtor {
-    fn byte_size() -> usize {
-        8
-    }
-    fn to_bytes(&self, buf: &mut [u8]) {
-        (*self.x1_.borrow()).to_bytes(&mut buf[0..4]);
-        (*self.x2_.borrow()).to_bytes(&mut buf[4..8]);
-    }
-    fn from_bytes(buf: &[u8]) -> Self {
-        Self {
-            x1_: Rc::new(RefCell::new(<i32>::from_bytes(&buf[0..4]))),
-            x2_: Rc::new(RefCell::new(<i32>::from_bytes(&buf[4..8]))),
-        }
     }
 }
 pub fn foo_0(x: Ptr<i32>) -> Ptr<i32> {
     return (x).clone();
+}
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(4)]
+pub struct Value_ {
+    #[offset(0)]
+    pub v: i32,
+}
+impl Value_ {
+    pub fn new(mut u: i32) -> Self {
+        Self { v: u }
+    }
+}
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg)]
+#[byte_size(8)]
+pub struct Ptr_ {
+    #[offset(0)]
+    #[byte_size(4)]
+    pub v1: Value_,
+    #[offset(4)]
+    #[byte_size(4)]
+    pub v2: Value_,
+}
+impl Ptr_ {
+    pub fn new() -> Self {
+        Self {
+            v1: Value_::new({ 11 }),
+            v2: Value_::new({ 22 }),
+        }
+    }
+}
+impl Default for Ptr_ {
+    fn default() -> Self {
+        { Ptr_::new() }
+    }
 }
 pub fn main() {
     __cpp2rust_init_globals();
@@ -66,6 +73,9 @@ fn main_0() -> i32 {
             && ((({ StructWithCtorImpl::x1(&struct_with_ctor.as_pointer(),) }).read()) == 2))
             && ((({ StructWithCtorImpl::x2(&struct_with_ctor.as_pointer(),) }).read()) == 1)
     );
+    let mut p: Ptr_ = Ptr_::new();
+    assert!((p.v1.v == 11));
+    assert!((p.v2.v == 22));
     return 0;
 }
 pub trait StructWithCtorImpl {
@@ -74,10 +84,10 @@ pub trait StructWithCtorImpl {
 }
 impl StructWithCtorImpl for Ptr<StructWithCtor> {
     fn x1(&self) -> Ptr<i32> {
-        return (*(*self).upgrade().deref()).x1_.as_pointer();
+        return field_ptr!((*self), x1_);
     }
     fn x2(&self) -> Ptr<i32> {
-        return (*(*self).upgrade().deref()).x2_.as_pointer();
+        return field_ptr!((*self), x2_);
     }
 }
 pub fn __cpp2rust_init_globals() {}

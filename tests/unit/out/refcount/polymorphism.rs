@@ -9,9 +9,11 @@ use std::rc::{Rc, Weak};
 pub trait Animal {
     fn bark(&self) -> bool;
 }
-#[derive(Clone, ByteRepr, Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(8)]
 pub struct Dog {}
-#[derive(Clone, ByteRepr, Default)]
+#[derive(Clone, Record, ByteRepr, VaArg, FnPtrArg, Default)]
+#[byte_size(8)]
 pub struct Cat {}
 pub fn main() {
     __cpp2rust_init_globals();
@@ -19,17 +21,12 @@ pub fn main() {
 }
 fn main_0() -> i32 {
     let dog: Value<Dog> = Rc::new(RefCell::new(<Dog>::default()));
-    let animal: Value<PtrDyn<dyn Animal>> =
-        Rc::new(RefCell::new((dog.as_pointer()).to_dyn::<dyn Animal>(|w| w)));
-    let eat1: Value<bool> = Rc::new(RefCell::new(
-        ({ (*(*animal.borrow()).upgrade().deref()).bark() }),
-    ));
+    let mut animal: PtrDyn<dyn Animal> = (dog.as_pointer()).to_dyn::<dyn Animal>(|w| w);
+    let mut eat1: bool = ({ (*animal.upgrade().deref()).bark() });
     let cat: Value<Cat> = Rc::new(RefCell::new(<Cat>::default()));
-    (*animal.borrow_mut()) = (cat.as_pointer()).to_dyn::<dyn Animal>(|w| w);
-    let eat2: Value<bool> = Rc::new(RefCell::new(
-        ({ (*(*animal.borrow()).upgrade().deref()).bark() }),
-    ));
-    assert!((*eat1.borrow()) && (!(*eat2.borrow())));
+    animal = (cat.as_pointer()).to_dyn::<dyn Animal>(|w| w);
+    let mut eat2: bool = ({ (*animal.upgrade().deref()).bark() });
+    assert!((eat1) && (!(eat2)));
     return 0;
 }
 impl Animal for Cat {

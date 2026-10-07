@@ -62,13 +62,13 @@ pub fn format_c(fmt: &str, va: &[VaArg]) -> String {
                     VaArg::ULong(v) => Arg::ULong(*v),
                     VaArg::Ptr(p) => Arg::Size(p.to_int()),
                     VaArg::RawPtr(v) => Arg::Size(*v as usize),
-                    VaArg::Double(_) => {
+                    VaArg::Double(_) | VaArg::Record(_) => {
                         panic!("format_c: integer conversion expects an integer argument")
                     }
                 },
                 ConversionType::Char => Arg::Char(i32::get(arg) as u8 as char),
                 ConversionType::String => match arg {
-                    VaArg::Ptr(v) => Arg::Str(v.reinterpret_cast::<u8>().to_rust_string()),
+                    VaArg::Ptr(v) => Arg::Str(v.reinterpret_cast::<i8>().to_rust_string()),
                     _ => panic!("format_c: %s expects a string argument"),
                 },
                 ConversionType::DecFloatLower
@@ -95,7 +95,7 @@ mod tests {
     use crate::Ptr;
 
     fn s(lit: &'static [u8]) -> VaArg {
-        Ptr::<u8>::from_string_literal(lit).into()
+        Ptr::<i8>::from_string_literal(lit).into()
     }
 
     #[test]

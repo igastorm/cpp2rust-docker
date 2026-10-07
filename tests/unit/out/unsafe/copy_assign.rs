@@ -8,7 +8,7 @@ use std::os::fd::{AsFd, FromRawFd, IntoRawFd};
 use std::rc::Rc;
 pub static mut assigns_0: std::cell::LazyCell<i32> = std::cell::LazyCell::new(|| unsafe { 0 });
 #[repr(C)]
-#[derive(Default)]
+#[derive(VaArg, FnPtrArg, Default)]
 pub struct Partial {
     pub v: i32,
     pub keep: i32,
@@ -40,7 +40,7 @@ impl Clone for Partial {
     }
 }
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, VaArg, FnPtrArg)]
 pub struct NonConstAssign {
     pub mark: i32,
 }
@@ -49,17 +49,11 @@ impl NonConstAssign {
         let mut this = Self { mark: 0 };
         this
     }
-    pub unsafe fn operator_assign_pmutNonConstAssign(
-        &mut self,
-        o: *mut NonConstAssign,
-    ) -> *mut NonConstAssign {
+    pub unsafe fn operator_assign_2(&mut self, o: *mut NonConstAssign) -> *mut NonConstAssign {
         self.mark = (((*o).mark) + (1));
         return &mut (*(self as *mut NonConstAssign));
     }
-    pub unsafe fn operator_assign_pconstNonConstAssign(
-        &mut self,
-        o: *const NonConstAssign,
-    ) -> *mut NonConstAssign {
+    pub unsafe fn operator_assign_3(&mut self, o: *const NonConstAssign) -> *mut NonConstAssign {
         self.mark = (((*o).mark) + (10));
         return &mut (*(self as *mut NonConstAssign));
     }
@@ -70,7 +64,7 @@ impl Default for NonConstAssign {
     }
 }
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, VaArg, FnPtrArg)]
 pub struct RefQualified {
     pub mark: i32,
 }
@@ -90,18 +84,10 @@ impl Default for RefQualified {
     }
 }
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, VaArg, FnPtrArg, Default)]
 pub struct Holder {
     pub p: Partial,
     pub arr: [Partial; 2],
-}
-impl Default for Holder {
-    fn default() -> Self {
-        Holder {
-            p: <Partial>::default(),
-            arr: std::array::from_fn::<_, 2, _>(|_| <Partial>::default()),
-        }
-    }
 }
 pub fn main() {
     unsafe {
@@ -156,8 +142,8 @@ unsafe fn main_0() -> i32 {
     let mut n1: NonConstAssign = NonConstAssign::new();
     let mut n2: NonConstAssign = NonConstAssign::new();
     let cn: NonConstAssign = NonConstAssign::new();
-    (unsafe { NonConstAssign::operator_assign_pmutNonConstAssign(&mut n1, &mut n) });
-    (unsafe { NonConstAssign::operator_assign_pconstNonConstAssign(&mut n2, &cn) });
+    (unsafe { NonConstAssign::operator_assign_2(&mut n1, &mut n) });
+    (unsafe { NonConstAssign::operator_assign_3(&mut n2, &cn) });
     assert!(((n1.mark) == (1)));
     assert!(((n2.mark) == (10)));
     let mut r: RefQualified = RefQualified::new();
